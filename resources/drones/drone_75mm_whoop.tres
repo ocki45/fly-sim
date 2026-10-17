@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="DroneConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/physics/drone_config.gd" id="1_config"]
+
+[resource]
+script = ExtResource("1_config")
+drone_name = "75mm Whoop (1S)"
+mass_kg = 0.03
+arm_length_m = 0.035
+motor_kv = 19000
+battery_cells = 1
+propeller_size_inch = 1.7
+propeller_pitch = 1.2
+moment_of_inertia = Vector3(8e-06, 8e-06, 1.2e-05)
+drag_coefficient = 0.01
+quadratic_drag = 0.0005
+angular_drag = 0.0008
+max_thrust_per_motor_n = 0.9
+throttle_curve_exponent = 2.0
+motor_spinup_time = 0.06
+gyro_effect_strength = 0.002
+stick_expo = 0.35

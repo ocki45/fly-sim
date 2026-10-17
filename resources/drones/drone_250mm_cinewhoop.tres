@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="DroneConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/physics/drone_config.gd" id="1_config"]
+
+[resource]
+script = ExtResource("1_config")
+drone_name = "250mm Cinewhoop (6S)"
+mass_kg = 0.85
+arm_length_m = 0.125
+motor_kv = 1100
+battery_cells = 6
+propeller_size_inch = 10.0
+propeller_pitch = 5.0
+moment_of_inertia = Vector3(0.004, 0.004, 0.006)
+drag_coefficient = 0.12
+quadratic_drag = 0.03
+angular_drag = 0.05
+max_thrust_per_motor_n = 26.0
+throttle_curve_exponent = 2.5
+motor_spinup_time = 0.22
+gyro_effect_strength = 0.05
+stick_expo = 0.4

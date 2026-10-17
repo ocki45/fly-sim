@@ -1,0 +1,125 @@
+[gd_scene load_steps=14 format=3]
+
+; main.tscn — сцена прототипа: земля, небо, солнце, дрон Quad X из примитивов.
+; DronePhysics (RigidBody3D) с дочерними точками моторов, визуальными маркерами
+; и FPV-камерой. Подключается как Main Scene проекта.
+
+[ext_resource type="Script" path="res://scripts/physics/drone_physics.gd" id="1_drone_physics"]
+[ext_resource type="Resource" path="res://resources/drones/drone_220mm_freestyle.tres" id="2_config"]
+[ext_resource type="Script" path="res://scripts/camera/fpv_camera.gd" id="3_fpv_camera"]
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
+sky_top_color = Color(0.35, 0.6, 0.95, 1)
+sky_horizon_color = Color(0.75, 0.85, 0.95, 1)
+ground_bottom_color = Color(0.2, 0.2, 0.22, 1)
+ground_horizon_color = Color(0.75, 0.85, 0.95, 1)
+
+[sub_resource type="Sky" id="Sky"]
+sky_material = SubResource("SkyMat")
+
+[sub_resource type="Environment" id="Env"]
+background_mode = 2
+sky = SubResource("Sky")
+ambient_light_source = 3
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="PlaneMesh" id="GroundMesh"]
+size = Vector2(500, 500)
+
+[sub_resource type="StandardMaterial3D" id="GroundMat"]
+albedo_color = Color(0.45, 0.45, 0.47, 1)
+roughness = 0.9
+
+[sub_resource type="BoxShape3D" id="GroundCol"]
+size = Vector3(500, 0.5, 500)
+
+[sub_resource type="BoxMesh" id="FrameMat_Mesh"]
+size = Vector3(0.02, 0.015, 0.24)
+
+[sub_resource type="StandardMaterial3D" id="FrameMat"]
+albedo_color = Color(0.15, 0.15, 0.17, 1)
+roughness = 0.6
+
+[sub_resource type="CylinderMesh" id="MotorMesh"]
+top_radius = 0.012
+bottom_radius = 0.015
+height = 0.025
+
+[sub_resource type="StandardMaterial3D" id="MotorMat"]
+albedo_color = Color(0.85, 0.35, 0.1, 1)
+metallic = 0.6
+roughness = 0.4
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866, -0.354, 0.354, 0, 0.8, 0.6, -0.5, -0.48, 0.64, 0, 20, 0)
+shadow_enabled = true
+
+[node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
+mesh = SubResource("GroundMesh")
+surface_material_override/0 = SubResource("GroundMat")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.25, 0)
+shape = SubResource("GroundCol")
+
+[node name="Drone" type="RigidBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+mass = 1.0
+gravity_scale = 0.0
+can_sleep = false
+script = ExtResource("1_drone_physics")
+config = ExtResource("2_config")
+
+[node name="ArmX1" type="MeshInstance3D" parent="Drone"]
+transform = Transform3D(0.707, 0, 0.707, 0, 1, 0, -0.707, 0, 0.707, 0, 0, 0)
+mesh = SubResource("FrameMat_Mesh")
+surface_material_override/0 = SubResource("FrameMat")
+
+[node name="ArmX2" type="MeshInstance3D" parent="Drone"]
+transform = Transform3D(-0.707, 0, 0.707, 0, 1, 0, -0.707, 0, -0.707, 0, 0, 0)
+mesh = SubResource("FrameMat_Mesh")
+surface_material_override/0 = SubResource("FrameMat")
+
+[node name="MotorFL" type="Node3D" parent="Drone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.078, 0.01, -0.078)
+
+[node name="Marker" type="MeshInstance3D" parent="Drone/MotorFL"]
+mesh = SubResource("MotorMesh")
+surface_material_override/0 = SubResource("MotorMat")
+
+[node name="MotorFR" type="Node3D" parent="Drone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.078, 0.01, -0.078)
+
+[node name="Marker" type="MeshInstance3D" parent="Drone/MotorFR"]
+mesh = SubResource("MotorMesh")
+surface_material_override/0 = SubResource("MotorMat")
+
+[node name="MotorBL" type="Node3D" parent="Drone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.078, 0.01, 0.078)
+
+[node name="Marker" type="MeshInstance3D" parent="Drone/MotorBL"]
+mesh = SubResource("MotorMesh")
+surface_material_override/0 = SubResource("MotorMat")
+
+[node name="MotorBR" type="Node3D" parent="Drone"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.078, 0.01, 0.078)
+
+[node name="Marker" type="MeshInstance3D" parent="Drone/MotorBR"]
+mesh = SubResource("MotorMesh")
+surface_material_override/0 = SubResource("MotorMat")
+
+[node name="FpvCamera" type="Camera3D" parent="Drone"]
+transform = Transform3D(1, 0, 0, 0, 0.985, 0.174, 0, -0.174, 0.985, 0, 0.06, -0.05)
+current = true
+fov = 150.0
+near = 0.05
+far = 1000.0
+script = ExtResource("3_fpv_camera")

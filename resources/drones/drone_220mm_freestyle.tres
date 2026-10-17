@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="DroneConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/physics/drone_config.gd" id="1_config"]
+
+[resource]
+script = ExtResource("1_config")
+drone_name = "220mm Freestyle (6S)"
+mass_kg = 0.6
+arm_length_m = 0.11
+motor_kv = 1750
+battery_cells = 6
+propeller_size_inch = 5.0
+propeller_pitch = 4.0
+moment_of_inertia = Vector3(0.002, 0.002, 0.003)
+drag_coefficient = 0.05
+quadratic_drag = 0.01
+angular_drag = 0.02
+max_thrust_per_motor_n = 22.0
+throttle_curve_exponent = 2.2
+motor_spinup_time = 0.15
+gyro_effect_strength = 0.02
+stick_expo = 0.25
