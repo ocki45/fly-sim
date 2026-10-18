@@ -58,10 +58,12 @@ func _process(delta: float) -> void:
 
 # Чтение со стиков аппаратуры
 func _read_joystick() -> void:
-	var raw_throttle := Input.get_joy_axis(_joy_id, JOY_AXIS_THROTTLE)
-	var raw_roll := Input.get_joy_axis(_joy_id, JOY_AXIS_ROLL)
-	var raw_pitch := Input.get_joy_axis(_joy_id, JOY_AXIS_PITCH)
-	var raw_yaw := Input.get_joy_axis(_joy_id, JOY_AXIS_YAW)
+	# `as JoyAxis` — приведение int-констант к enum-типу JoyAxis, который
+	# требует Input.get_joy_axis() в Godot 4 (иначе ошибка типизации).
+	var raw_throttle := Input.get_joy_axis(_joy_id, JOY_AXIS_THROTTLE as JoyAxis)
+	var raw_roll := Input.get_joy_axis(_joy_id, JOY_AXIS_ROLL as JoyAxis)
+	var raw_pitch := Input.get_joy_axis(_joy_id, JOY_AXIS_PITCH as JoyAxis)
+	var raw_yaw := Input.get_joy_axis(_joy_id, JOY_AXIS_YAW as JoyAxis)
 
 	# В Godot Y вниз = +1, а на аппаратуре газ вверх = -1 => инвертируем
 	raw_throttle = -raw_throttle

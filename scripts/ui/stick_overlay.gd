@@ -18,11 +18,15 @@ const DOT_R := 8.0                   # Радиус точки стика, пи�
 const PADDING := 30.0                # Отступ снизу/по бокам
 const FONT_SIZE := 14                # Размер подписей значений осей
 
-# Номера осей RadioMaster Pocket в режиме Joystick (Mode 2):
-const AXIS_YAW := JOY_AXIS_0         # Левый стик горизонталь
-const AXIS_THROTTLE := JOY_AXIS_1    # Левый стик вертикаль (без пружины)
-const AXIS_ROLL := JOY_AXIS_2        # Правый стик горизонталь
-const AXIS_PITCH := JOY_AXIS_3       # Правый стик вертикаль
+# Номера осей RadioMaster Pocket в режиме Joystick (Mode 2).
+# ВАЖНО: в Godot 4 НЕ существует глобальных констант JOY_AXIS_0... —
+# это был синтаксис Godot 3. Здесь используем обычные int-константы,
+# а при вызовах приводим их к JoyAxis через `as JoyAxis` (иначе статический
+# типизатор Godot 4 ругается: "Cannot pass a value of type int as JoyAxis").
+const AXIS_YAW: int = 0              # Левый стик горизонталь
+const AXIS_THROTTLE: int = 1         # Левый стик вертикаль (без пружины)
+const AXIS_ROLL: int = 2             # Правый стик горизонталь
+const AXIS_PITCH: int = 3            # Правый стик вертикаль
 
 var _joy_connected := false
 
@@ -51,10 +55,12 @@ func _draw() -> void:
 	var v_roll := 0.0
 	var v_pitch := 0.0
 	if _joy_connected and Input.is_joy_known(JOY_ID):
-		v_yaw = Input.get_joy_axis(JOY_ID, AXIS_YAW)
-		v_throttle = Input.get_joy_axis(JOY_ID, AXIS_THROTTLE)
-		v_roll = Input.get_joy_axis(JOY_ID, AXIS_ROLL)
-		v_pitch = Input.get_joy_axis(JOY_ID, AXIS_PITCH)
+		# `as JoyAxis` — приведение int-констант к enum-типу JoyAxis,
+		# требуемому сигнатурой Input.get_joy_axis() в Godot 4.
+		v_yaw = Input.get_joy_axis(JOY_ID, AXIS_YAW as JoyAxis)
+		v_throttle = Input.get_joy_axis(JOY_ID, AXIS_THROTTLE as JoyAxis)
+		v_roll = Input.get_joy_axis(JOY_ID, AXIS_ROLL as JoyAxis)
+		v_pitch = Input.get_joy_axis(JOY_ID, AXIS_PITCH as JoyAxis)
 
 	# --- Левый круг: Yaw (X) + Throttle (Y, ИНВЕРТИРОВАН: газ вверх = точка вверх)
 	var left_center := Vector2(PADDING + CIRCLE_R, size_px.y - PADDING - CIRCLE_R)
