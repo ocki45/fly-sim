@@ -31,7 +31,8 @@ var _rpm_br := 0.0
 func _ready() -> void:
 	# Гравитацию движка не используем — применяем свою из config.mass_kg
 	gravity_scale = 0.0
-	free_rotate = true
+	# free_rotate удалён: в Godot 4 его нет (был только в Godot 3).
+	# RigidBody3D всегда свободно вращается — нам это и нужно.
 	can_sleep = false
 	if config == null:
 		push_error("DronePhysics: config не назначен!")
@@ -55,10 +56,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	#   FR(-) = газ + pitch - roll + yaw
 	#   BL(-) = газ - pitch + roll + yaw
 	#   BR(+) = газ - pitch - roll - yaw
-	var t_fl := clampf(throttle + stick_pitch + stick_roll - stick_yaw, 0.0, 1.0)
-	var t_fr := clampf(throttle + stick_pitch - stick_roll + stick_yaw, 0.0, 1.0)
-	var t_bl := clampf(throttle - stick_pitch + stick_roll + stick_yaw, 0.0, 1.0)
-	var t_br := clampf(throttle - stick_pitch - stick_roll - stick_yaw, 0.0, 1.0)
+	# Микшер с headroom: отклонения стиков делят свободный диапазон (1 - газ),
+	# поэтому суммарная тяга на зависании не «съедается» и не обнуляется при
+	# полном стике (раньше clampf глушил моторы диагонали -> дрон падал).
+	var t_fl := clampf(throttle + (1.0 - throttle) * (stick_pitch + stick_roll - stick_yaw), 0.0, 1.0)
+	var t_fr := clampf(throttle + (1.0 - throttle) * (stick_pitch - stick_roll + stick_yaw), 0.0, 1.0)
+	var t_bl := clampf(throttle + (1.0 - throttle) * (-stick_pitch + stick_roll + stick_yaw), 0.0, 1.0)
+	var t_br := clampf(throttle + (1.0 - throttle) * (-stick_pitch - stick_roll - stick_yaw), 0.0, 1.0)
 
 	# ---------- 3. Инерция моторов (разгон медленнее торможения) ----------
 	_rpm_fl = _spin_motor(_rpm_fl, t_fl, delta)
@@ -77,7 +81,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	# ---------- 5. Сила тяги в локальной системе дрона (локальная +Y вверх) ----------
 	var local_up := Vector3(0, 1, 0)
 	var global_transform_basis := state.transform.basis
-	var thrust_force_world := global_transform_basis.xform(local_up) * total_thrust
+	# В Godot 4 у Basis НЕТ метода .xform() — правильный способ: оператор *
+	# total_thrust — нормализованная тяга 0..4, переводим в ньютоны через max_thrust_newtons
+	var thrust_force_world := (global_transform_basis * local_up) * (total_thrust * config.max_thrust_newtons)
 	# Собственная гравитация (массу RigidBody берём из конфига)
 	var gravity_force := Vector3(0, -config.mass_kg * GRAVITY, 0)
 
@@ -101,41 +107,62 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var speed := vel.length()
 	# Линейное + квадратичное сопротивление, направлено против скорости
 	var drag_mag := config.drag_coefficient * speed + config.quadratic_drag * speed * speed
+	drag_mag = minf(drag_mag, config.mass_kg * GRAVITY)  # защита от «взрыва» симуляции
 	var drag_force := -vel.normalized() * drag_mag if speed > 0.01 else Vector3.ZERO
 
-	# ---------- 9. Управление угловой скоростью (rate-model без PID) ----------
-	var ang_vel := state.angular_velocity
-	# Моторы уже дают физический момент от миксера; сюда добавляем упругую
-	# "стабилизацию" вокруг текущей стик-команды, чтобы дрон не закручивался
-	# бесконечно и адекватно реагировал на мелкие возмущения.
+	# ---------- 9. Rate-контроллер (стабилизатор угловой скорости) ----------
+	# ВАЖНО: это НЕ PID в понимании Betaflight — это один пропорциональный (P)
+	# закон, удерживающий угловую скорость вокруг стик-команды. Без него чистый
+	# микшер разгоняет дрон до тысяч °/с (нет физического демпфирования), и
+	# dependent от шага интегрирования — численная неустойчивость (NaN).
+	# Все величины считаются В ЛОКАЛЬНЫХ осях дрона (момент инерции диагонален).
+	var ang_local := global_transform_basis.transposed() * state.angular_velocity
 	# Целевые угловые скорости: sign согласован со знаками моментов блока 6.
-	var desired_ang := Vector3(
+	var desired_ang_local := Vector3(
 		stick_roll * MAX_RATE_ROLL_PITCH,   # +X = наклон вправо
 		stick_yaw * MAX_RATE_YAW,           # +Y = yaw по часовой (справа вверх)
 		-stick_pitch * MAX_RATE_ROLL_PITCH  # -Z = nose down при стике вверх
 	)
-	# Пропорциональный момент доворота к целевой скорости вращения
 	var inertia := config.moment_of_inertia
-	var rate_error := desired_ang - ang_vel
-	var control_torque_local := Vector3(
-		rate_error.x * inertia.x * RATE_STIFFNESS,
-		rate_error.y * inertia.y * RATE_STIFFNESS,
-		rate_error.z * inertia.z * RATE_STIFFNESS
-	)
-	# Угловое сопротивление (естественное затухание)
-	var ang_damp := -ang_vel * config.angular_drag
+	# Суммарный локальный момент: физика + управление + демпфирование + гиро
+	var total_torque_local := Vector3(torque_roll, torque_yaw, torque_pitch)
+	for axis in 3:
+		var i_axis: float = [inertia.x, inertia.y, inertia.z][axis]
+		var err := desired_ang_local[axis] - ang_local[axis]
+		total_torque_local[axis] += err * i_axis * RATE_STIFFNESS  # P-доворот до цели
+		total_torque_local[axis] -= ang_local[axis] * config.angular_drag  # затухание
+	# Гиропрецессия от момента импульса винтов (блок 7): наклон по X порождает
+	# момент вокруг Z и наоборот (перекрёстное произведение L и omega корпуса).
+	total_torque_local.x += -spin_total * config.gyro_effect_strength * ang_local.z
+	total_torque_local.z += spin_total * config.gyro_effect_strength * ang_local.x
 
-	# Гиропрецессия от суммарного момента импульса винтов (см. блок 7):
-	# наклон с скоростью ang_vel.z порождает момент вокруг X и наоборот.
-	var gyro_torque_local := Vector3(
-		-spin_total * config.gyro_effect_strength * ang_vel.z,
-		0.0,
-		spin_total * config.gyro_effect_strength * ang_vel.x
-	)
+	# ---------- 9b. ЧИСЛЕННАЯ УСТОЙЧИВОСТЬ ----------
+	# Явный Эйлер для вращения неустойчив, когда жёсткость контроллера велика
+	# относительно момента инерции и шага интегрирования: условие устойчивости
+	# явной схемы dt < 2*I/K. Godot может давать большие шаги (просадки кадров),
+	# поэтому ограничиваем эффективную жёсткость под текущий шаг...
+	var min_i: float = minf(minf(inertia.x, inertia.y), inertia.z)
+	var eff_stiffness: float = minf(RATE_STIFFNESS, 1.8 * min_i / maxf(step_delta, 0.0001))
+	# ...и пересчитывательную часть момента с ней (демпфер остаётся как есть).
+	for axis in 3:
+		var i_axis2: float = [inertia.x, inertia.y, inertia.z][axis]
+		var err2 := desired_ang_local[axis] - ang_local[axis]
+		total_torque_local[axis] += err2 * i_axis2 * (eff_stiffness - RATE_STIFFNESS)
 
-	var torque_local := Vector3(torque_roll, torque_yaw, torque_pitch) \
-		+ gyro_torque_local + control_torque_local + ang_damp
-	var torque_world := global_transform_basis.xform(torque_local)
+	# Жёсткий предохранитель: реальные FPV-дроны не вращаются быстрее ~600°/s.
+	var max_rate_hard: float = deg_to_rad(600.0)
+	if absf(ang_local.x) > max_rate_hard or absf(ang_local.y) > max_rate_hard \
+			or absf(ang_local.z) > max_rate_hard:
+		ang_local.x = clampf(ang_local.x, -max_rate_hard, max_rate_hard)
+		ang_local.y = clampf(ang_local.y, -max_rate_hard, max_rate_hard)
+		ang_local.z = clampf(ang_local.z, -max_rate_hard, max_rate_hard)
+		# Синхронизируем состояние движка (иначе инерция движка «сотрёт» лимит)
+		linear_velocity = state.linear_velocity
+		angular_velocity = global_transform_basis * ang_local
+
+	# Перевод локального момента в мировые координаты: Basis * vector (Godot 4)
+	# (объявлена ровно один раз — ранее была ошибка дублирования объявления)
+	var torque_world := global_transform_basis * total_torque_local
 
 	# ---------- 10. Применение сил и моментов ----------
 	state.add_force(thrust_force_world + gravity_force + drag_force)
