@@ -51,6 +51,8 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	# Перерисовываем каждый кадр — значения осей меняются непрерывно
+	if has_node("/root/InputHandler"):
+		_update_axis_debug(get_node("/root/InputHandler"))
 	queue_redraw()
 
 func _draw() -> void:
@@ -90,17 +92,26 @@ func _draw() -> void:
 	var right_center := Vector2(size.x - PADDING - CIRCLE_R, size.y - PADDING - CIRCLE_R)
 	_draw_stick_circle(right_center, roll_v, pitch_v, "R: ROLL / PITCH", font)
 
-# Рисует панель со ВСЕМИ сырыми осями джойстика (для настройки маппинга).
-func _draw_axis_debug(ih: Node, font: Font) -> void:
+# Кэш списка осей для диагностики: пересобираем не каждый кадр, а раз в 0.5 с.
+# Это снимает нагрузку и делает панель стабильной.
+var _dbg_lines: Array[String] = ["ОСИ: инициализация..."]
+var _dbg_timer: float = 1.0
+
+# Обновляет список строк диагностики сырых осей (вызывается из _process).
+func _update_axis_debug(ih: Node) -> void:
+	_dbg_timer -= get_process_delta_time()
+	if _dbg_timer > 0.0:
+		return
+	_dbg_timer = 0.5  # обновляем панель 2 раза в секунду — значения видны «живьём»
+
 	var joy_id: int = ih._joy_id
 	var lines: Array[String] = []
 	if joy_id == -1:
 		lines.append("JOY NOT FOUND — работает клавиатура (W/S газ, A/D yaw, стрелки)")
 	else:
-		# ВАЖНО (Godot 4.3): у Input ЕСТЬ метод get_joy_axis_count() — но в некоторых
-		# сборках он отсутствует/ломается при вызове через класс Input напрямую.
-		# Количество осей берём из JoyConnection (это официальный Godot 4 API):
-		# Input.get_joy_info(joy_id) возвращает словарь с ключом "axis".
+		# ВАЖНО (Godot 4.3): НЕ используем Input.get_joy_axis_count() — его нет как
+		# статического метода (был Parse Error). Количество осей берём из
+		# Input.get_joy_info(joy_id) — словарь JoyConnection с ключом "axis".
 		var axes_count: int = 0
 		var info: Dictionary = Input.get_joy_info(joy_id)
 		if info.has("axis"):
@@ -113,22 +124,25 @@ func _draw_axis_debug(ih: Node, font: Font) -> void:
 			if absf(v) < 0.02:
 				v = 0.0  # гасим шум покоя, чтобы глаз ловил только реальные движения
 			var tag := ""
-			if ax == ih.axis_yaw:      tag = " <- YAW"
+			if ax == ih.axis_yaw:        tag = " <- YAW"
 			elif ax == ih.axis_throttle: tag = " <- THROTTLE"
-			elif ax == ih.axis_roll:   tag = " <- ROLL"
-			elif ax == ih.axis_pitch:  tag = " <- PITCH"
+			elif ax == ih.axis_roll:     tag = " <- ROLL"
+			elif ax == ih.axis_pitch:    tag = " <- PITCH"
 			lines.append("ось %d: %+0.2f%s" % [ax, v, tag])
+	_dbg_lines = lines
 
-	# Фон панели
-	var panel_h := float(lines.size()) * DBG_LINE_H + 12.0
+# Рисует панель со ВСЕМИ сырыми осями джойстика (для настройки маппинга).
+func _draw_axis_debug(_ih: Node, font: Font) -> void:
+	# Фон панели (размер по текущему числу строк)
+	var panel_h := float(_dbg_lines.size()) * DBG_LINE_H + 12.0
 	draw_rect(Rect2(Vector2(16, 16), Vector2(560, panel_h)), Color(0, 0, 0, 0.65))
-	var y := 16.0 + DBG_FONT_SIZE + 6.0
-	for i in lines.size():
+	var y := 16.0 + float(DBG_FONT_SIZE) + 6.0
+	for i in _dbg_lines.size():
 		var col := Color(0.8, 0.9, 1.0) if i > 0 else Color(1.0, 0.9, 0.3)
 		# Подсвечиваем строки выбранных осей зелёным
-		if lines[i].contains("<-"):
+		if _dbg_lines[i].contains("<-"):
 			col = Color(0.2, 1.0, 0.3)
-		draw_string(font, Vector2(28.0, y), lines[i],
+		draw_string(font, Vector2(28.0, y), _dbg_lines[i],
 			HORIZONTAL_ALIGNMENT_LEFT, -1.0, DBG_FONT_SIZE, col)
 		y += DBG_LINE_H
 

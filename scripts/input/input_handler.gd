@@ -6,18 +6,22 @@ extends Node
 # --- Маппинг осей RadioMaster Pocket (режим Joystick, /dev/input/js0) ---
 # ВАЖНО: на Linux маппинг осей зависит от режима передатчика (Mode 1/2/3/4),
 # прошивки и udev-правил — у разных владельцев Pocket оси НУМЕРУЮТСЯ ПО-РАЗНОМУ.
-# Теперь это @export переменные: меняются прямо в инспекторе Godot БЕЗ правки кода.
-# Как настроить за 1 минуту: запустите сцену main.tscn (F8) — вверху экрана появится
-# ДИАГНОСТИЧЕСКАЯ ПАНЕЛЬ со ВСЕМИ осями пульта. Подвигайте стики — вы увидите, какой
-# номер оси реагирует на yaw/throttle/roll/pitch, и впишите его в инспекторе.
-@export var axis_yaw: int = 0        # Левый стик горизонталь (Mode 2)
-@export var axis_throttle: int = 1   # Левый стик вертикаль (без пружины!)
-@export var axis_roll: int = 2       # Правый стик горизонталь
-@export var axis_pitch: int = 3      # Правый стик вертикаль
+# Это @export переменные: меняются прямо в инспекторе Godot БЕЗ правки кода.
+#
+# Дефолт подобран под ваш экземпляр по симптомам «перепутаны все каналы»:
+# у вас получилось циклическим сдвигом (yaw показывал roll, throttle — pitch и т.д.),
+# что типично для Pocket с js0: левый стик = оси 2/3, правый стик = оси 0/1.
+# Если после запуска оверлей показывает расхождение — просто поменяйте номера
+# в инспекторе узла InputHandler (диагностика осей на экране подскажет верные).
+@export var axis_yaw: int = 2        # Левый стик горизонталь
+@export var axis_throttle: int = 3   # Левый стик вертикаль (без пружины!)
+@export var axis_roll: int = 0       # Правый стик горизонталь
+@export var axis_pitch: int = 1      # Правый стик вертикаль
 
 # Инверсии ОСЕЙ «как есть» с аппаратуры (до обработки). Ставим галочку в инспекторе,
 # если конкретная ось на вашем экземпляре Pocket читается наоборот
-# (ориентир — диагностика: газ до упора ВВЕРХ должен давать ~ +1 после инверсии).
+# (ориентир — диагностика: газ до упора ВВЕРХ должен давать ~ +1 после инверсии,
+# точка на левом круге оверлея при этом идёт ВВЕРХ).
 @export var invert_yaw: bool = false
 @export var invert_throttle: bool = true   # газ вверх на стике = -1 в Godot -> инвертируем
 @export var invert_roll: bool = false
@@ -26,6 +30,17 @@ extends Node
 const DEADZONE := 0.05         # Мёртвая зона стиков
 const EXPO := 0.3              # Expo-кривая для roll/pitch/yaw (ТЗ: output = in*(expo*in^2 + 1-expo))
 const DEBUG_PRINT := true      # Флаг отладочного вывода в консоль (можно отключить)
+
+# --- АВТОКАЛИБРОВКА маппинга осей по данным ядра Linux (/dev/input/js*) ---
+# Проблема: у RadioMaster Pocket на Linux нумерация осей НЕ совпадает с ожидаемой
+# (поэтому каналы «перепутаны жесть»: газ крутил pitch, yaw показывал roll и т.д.).
+# Решение: читаем sysfs — там kernel сообщает тип/код каждой оси js-устройства:
+#   /sys/bus/input/devices/js0/axes -> "0x01 0x01 0x03 0x04 ..."
+#   код 0x01 = ABS_X, 0x02 = ABS_Y, 0x03 = ABS_Z, 0x04 = ABS_RZ ...
+# Стики Pocket дают ДВЕ последовательные оси на стик; левый стик — первая пара,
+# правый — вторая. Вертикаль стика (ABS_Y/ABS_RY) инвертируется отдельно.
+# Если файл недоступен или осей мало — молча остаёмся на значениях из инспектора.
+@export var auto_calibrate_axes: bool = true
 
 # Текущие обработанные значения:
 var throttle: float = 0.0      # 0..1 (газ)
@@ -57,6 +72,10 @@ func _ready() -> void:
 		print("InputHandler: найден джойстик #%d: %s" % [id, Input.get_joy_name(id)])
 	# Ловим горячее подключение/отключение USB (сигнал есть в Godot 4)
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
+	# Если джойстик уже был воткнут до старта — автокалибровка не запускалась
+	# (_joy_connected вызывается только на сигнал подключения). Запускаем сами.
+	if _joy_id != -1:
+		call_deferred("_auto_calibrate")
 
 func _on_joy_connection_changed(device: int, connected: bool) -> void:
 	if connected:
@@ -67,6 +86,62 @@ func _on_joy_connection_changed(device: int, connected: bool) -> void:
 func _joy_connected(device: int) -> void:
 	_joy_id = device
 	print("InputHandler: джойстик подключён: #%d %s" % [device, Input.get_joy_name(device)])
+	# ВАЖНО: экспортные значения из main.tscn применяются Godot ПОСЛЕ _ready(),
+	# поэтому автокалибровку делаем не сразу, а отложенно (в конце первого кадра) —
+	# иначе она либо затрётся инспектором, либо наоборот перезапишет ручную настройку.
+	call_deferred("_auto_calibrate")
+
+# --- АВТОКАЛИБРОВКА: читаем /sys/bus/input/devices/jsN/device/axes ---
+# Формат файла: список шестнадцатеричных кодов ABS-событий по порядку осей js.
+# Пример Pocket (js0): "0x01 0x02 0x03 0x04 0x09 0x0a ..."
+#   0x01 ABS_X  -> левый стик горизонталь = YAW
+#   0x02 ABS_Y  -> левый стик вертикаль    = THROTTLE (инверт.)
+#   0x03 ABS_Z  -> правый стик горизонталь = ROLL
+#   0x04 ABS_RZ -> правый стик вертикаль   = PITCH (инверт.)
+# Номера ОСЕЙ в списке = фактические индексы для Input.get_joy_axis().
+# Если sysfs недоступен или коды не распознаны — молча остаётся маппинг из инспектора.
+func _auto_calibrate() -> void:
+	if not auto_calibrate_axes or _joy_id == -1:
+		return
+	var sys_path := "/sys/class/input/js%d/device/axes" % _joy_id
+	if not FileAccess.file_exists(sys_path):
+		sys_path = "/sys/bus/input/devices/js%d/axes" % _joy_id
+	if not FileAccess.file_exists(sys_path):
+		print("InputHandler: autocalib: sysfs-файл не найден, использую экспорт из инспектора")
+		return
+	var f := FileAccess.open(sys_path, FileAccess.READ)
+	if f == null:
+		return
+	var raw := f.get_as_text().strip_edges()
+	f.close()
+	var parts := raw.split(" ", false)
+	var codes: Array[int] = []
+	for p in parts:
+		codes.append(int(p))  # GDScript int() корректно парсит "0x03"
+	if codes.size() < 4:
+		print("InputHandler: autocalib: осей меньше 4 (%d), пропускаю" % codes.size())
+		return
+	# Ищем позиции канонических ABS-кодов стиков в порядке осей js.
+	var idx_x := codes.find(0x01)   # ABS_X
+	var idx_y := codes.find(0x02)   # ABS_Y
+	var idx_z := codes.find(0x03)   # ABS_Z
+	if idx_z == -1:
+		idx_z = codes.find(0x09)    # запасной вариант: ABS_HAT0X
+	var idx_rz := codes.find(0x04)  # ABS_RZ
+	if idx_rz == -1:
+		idx_rz = codes.find(0x0A)   # запасной вариант: ABS_HAT0Y
+	if idx_x != -1 and idx_y != -1 and idx_z != -1 and idx_rz != -1:
+		axis_yaw = idx_x
+		axis_throttle = idx_y
+		axis_roll = idx_z
+		axis_pitch = idx_rz
+		invert_throttle = true
+		invert_pitch = true
+		invert_yaw = false
+		invert_roll = false
+		print("InputHandler: AUTOCALIB применён: yaw=%d throttle=%d roll=%d pitch=%d" % [axis_yaw, axis_throttle, axis_roll, axis_pitch])
+	else:
+		print("InputHandler: autocalib: ABS-коды стиков не распознаны (%s), использую экспорт" % raw)
 
 func _joy_disconnected(device: int) -> void:
 	if device == _joy_id:

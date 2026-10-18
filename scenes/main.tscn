@@ -131,6 +131,10 @@ far = 1000.0
 script = ExtResource("3_fpv_camera")
 drone = NodePath("..")
 
+[node name="DebugCam" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.923880, 0.382683, 0, -0.382683, 0.923880, 0, 3.0, 6.0)
+enabled = false
+
 [node name="OSD" type="CanvasLayer" parent="."]
 
 [node name="Label" type="Label" parent="OSD"]
