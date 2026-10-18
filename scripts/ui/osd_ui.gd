@@ -38,20 +38,21 @@ func _process(delta: float) -> void:
 		text = "OSD: дрон не подключён!"
 		return
 
-	var throttle := InputHandler.throttle  # 0..1 из автозагрузки InputHandler
+	# Телеметрия из физики дрона (get_telemetry() в drone_physics.gd)
+	var tele := {}
+	if _drone is DronePhysics:
+		tele = (_drone as DronePhysics).get_telemetry()
+
+	# Фолбэк, если словарь пустой — берём газ напрямую из InputHandler
+	var throttle := float(tele.get("throttle", InputHandler.throttle))
+	var voltage := float(tele.get("voltage", 0.0))
+	var speed := float(tele.get("speed", _drone.linear_velocity.length()))
 
 	# Таймер: считаем секунды после взлёта (газ > порога)
 	if not _launched and throttle > LAUNCH_THROTTLE:
 		_launched = true
 	if _launched:
 		_flight_time += delta
-
-	# Напряжение: cells * 4.2 В минус просадка от нагрузки (газа)
-	var sag := throttle * LOAD_CURRENT_A * CELL_SAG_OHMS * float(_config.battery_cells)
-	var voltage := float(_config.battery_cells) * CELL_FULL_V - sag
-
-	# Скорость дрона относительно земли, м/с
-	var speed := _drone.linear_velocity.length()
 
 	# Форматирование времени mm:ss
 	var minutes := int(_flight_time) / 60

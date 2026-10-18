@@ -28,6 +28,10 @@ var _rpm_fr := 0.0
 var _rpm_bl := 0.0
 var _rpm_br := 0.0
 
+# --- Телеметрия для OSD (обновляется каждый физический шаг) ---
+var current_throttle: float = 0.0   # Сырой стик газа (0..1), до применения кривой
+var current_voltage: float = 0.0    # Расчётное напряжение батареи с просадкой, В
+
 func _ready() -> void:
 	# Гравитацию движка не используем — применяем свою из config.mass_kg
 	gravity_scale = 0.0
@@ -51,6 +55,9 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var stick_roll := InputHandler.roll
 	var stick_pitch := InputHandler.pitch
 	var stick_yaw := InputHandler.yaw
+	# Сохраняем сырой газ и расчётное напряжение для OSD (телеметрия)
+	current_throttle = InputHandler.throttle
+	current_voltage = _battery_voltage(current_throttle)
 	var throttle := pow(InputHandler.throttle, config.throttle_curve_exponent)
 
 	# ---------- 2. Миксер Quad X: целевые обороты каждого мотора ----------
@@ -170,8 +177,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var torque_world := global_transform_basis * total_torque_local
 
 	# ---------- 10. Применение сил и моментов ----------
-	state.add_force(thrust_force_world + gravity_force + drag_force)
-	state.add_torque(torque_world)
+	# ВАЖНО (Godot 4.x!): у PhysicsDirectBodyState3D НЕТ методов add_force /
+	# add_torque — это был синтаксис Godot 3. В Godot 4 правильно:
+	#   apply_central_force() — сила без точки приложения (через центр масс)
+	#   apply_torque_impulse() — момент; умножаем на delta, чтобы получить
+	#   эквивалент непрерывного момента за шаг интегрирования.
+	state.apply_central_force(thrust_force_world + gravity_force + drag_force)
+	state.apply_torque_impulse(torque_world * delta)
 
 	# ---------- 11. Автозапуск: сброс при падении ниже земли ----------
 	if state.transform.origin.y < -5.0:
@@ -187,3 +199,20 @@ func _spin_motor(current: float, target: float, delta: float) -> float:
 	# Экспоненциальное приближение к цели (сглаживание первого порядка)
 	var alpha := 1.0 - exp(-delta / maxf(tau, 0.001))
 	return lerpf(current, target, alpha)
+
+# Упрощённая модель батареи для OSD: номинал ячеек минус просадка от тока.
+func _battery_voltage(throttle: float) -> float:
+	const CELL_FULL_V := 4.2       # В на ячейку (полный заряд LiPo)
+	const CELL_SAG_OHMS := 0.012   # Внутреннее сопротивление ячейки, Ом
+	const LOAD_CURRENT_A := 60.0   # Ток при 100% газа, А
+	var cells := float(config.battery_cells)
+	var sag := throttle * LOAD_CURRENT_A * CELL_SAG_OHMS * cells
+	return cells * CELL_FULL_V - sag
+
+# Телеметрия для OSD (Задача 3): словарь с напряжением, газом и скоростью.
+func get_telemetry() -> Dictionary:
+	return {
+		"voltage": current_voltage,          # В, расчётное с просадкой
+		"throttle": current_throttle,        # 0..1, сырой стик газа
+		"speed": linear_velocity.length(),   # м/с относительно земли
+	}
