@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=17 format=3]
 
 ; main.tscn — сцена прототипа: земля, небо, солнце, дрон Quad X из примитивов.
 ; DronePhysics (RigidBody3D) с дочерними точками моторов, визуальными маркерами
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://scripts/camera/fpv_camera.gd" id="3_fpv_camera"]
 [ext_resource type="Script" path="res://scripts/ui/osd_ui.gd" id="4_osd"]
 [ext_resource type="Script" path="res://scripts/ui/stick_overlay.gd" id="5_sticks"]
+[ext_resource type="PackedScene" path="res://scenes/objects/race_gate.tscn" id="6_gate"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
 sky_top_color = Color(0.35, 0.6, 0.95, 1)
@@ -63,6 +64,9 @@ transform = Transform3D(0.866, -0.354, 0.354, 0, 0.8, 0.6, -0.5, -0.48, 0.64, 0,
 shadow_enabled = true
 
 [node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="RaceGate" parent="." instance=ExtResource("6_gate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, -8)
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
 mesh = SubResource("GroundMesh")
