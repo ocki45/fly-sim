@@ -183,10 +183,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 	# ---------- 10. Применение сил и моментов ----------
 	# ВАЖНО (Godot 4.x!): у PhysicsDirectBodyState3D НЕТ методов add_force /
-	# add_torque_impulse — правильный API Godot 4:
+	# add_torque (это синтаксис Godot 3). Правильный API Godot 4:
 	#   apply_central_force() — сила через центр масс (в мировых координатах)
 	#   apply_torque()        — непрерывный момент (Н*м), движок сам домножит на шаг
-	var total_force := thrust_force_world + gravity_force + drag_force
+	var total_force: Vector3 = thrust_force_world + gravity_force + drag_force
 	state.apply_central_force(total_force)
 	state.apply_torque(torque_world)
 
