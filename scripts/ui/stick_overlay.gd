@@ -28,9 +28,13 @@ const PADDING := 30.0         # Отступ снизу/по бокам
 const FONT_SIZE := 14         # Размер подписей значений осей
 
 func _ready() -> void:
-	# Оверлей — отдельный CanvasLayer поверх всего (layer=10), поэтому его не
-	# перекрывает OSD-слой и он виден даже при проблемах с другими UI-узлами.
-	layer = 10
+	# Мы — Control внутри CanvasLayer (StickOverlay, layer=10). Раньше скрипт
+	# мог висеть на самом CanvasLayer и вызывать size/queue_redraw/_draw у него —
+	# это ломало оверлей (ничего не рисовалось). Теперь растягиваемся на весь
+	# экран, включаем пофреймовый redraw и гарантируем видимость.
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	visible = true          # узел в main.tscn мог остаться со visible=false
 	set_process(true)
 
 func _process(_delta: float) -> void:

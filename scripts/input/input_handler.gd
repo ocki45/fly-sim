@@ -43,14 +43,12 @@ var raw_yaw: float = 0.0
 var _joy_id: int = -1          # ID подключённого джойстика
 var _debug_timer: float = 0.0  # Ограничитель частоты печати
 
-# --- Живая диагностика осей. Рисуется в _draw() самого InputHandler: Godot
-# вызывает _draw у ЛЮБОГО узла (не только Control), а рисование идёт на
-# 2D-экран в координатах пикселей. Это гарантирует, что панель со ВСЕМИ осями
-# появится даже если весь остальной UI сломан — именно это нужно для
-# поиска перепутанного маппинга. Отключается флагом show_axis_debug. ---
+# --- Живая диагностика осей перенесена в stick_overlay.gd (оверлей стиков):
+# там она рисуется корректно на Control-узле. InputHandler больше НИЧЕГО не
+# рисует сам — у Node-узла нет size, и _draw вызывался бы с ошибкой, ломая
+# весь ввод (из-за этого оверлей «ничего не показывал»). Оставлен только флаг
+# show_axis_debug для совместимости со сценой. ---
 @export var show_axis_debug: bool = true
-const DBG_FONT_SIZE := 15
-const DBG_LINE_H := 19
 
 func _ready() -> void:
 	# Ищем уже подключённый джойстик
@@ -59,42 +57,6 @@ func _ready() -> void:
 		print("InputHandler: найден джойстик #%d: %s" % [id, Input.get_joy_name(id)])
 	# Ловим горячее подключение/отключение USB (сигнал есть в Godot 4)
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
-
-func _draw() -> void:
-	if not show_axis_debug:
-		return
-	var font := ThemeDB.fallback_font
-	var lines: Array[String] = []
-	if _joy_id == -1:
-		lines.append("JOY NOT FOUND — работает клавиатура (W/S газ, A/D yaw, стрелки)")
-	else:
-		var axes_count: int = Input.get_joy_axis_count(_joy_id)
-		lines.append("СЫРЫЕ ОСИ #%d (%s): подвигайте стиками!" % [_joy_id, Input.get_joy_name(_joy_id)])
-		for ax in axes_count:
-			var v: float = Input.get_joy_axis(_joy_id, ax as JoyAxis)
-			if absf(v) < 0.02:
-				v = 0.0  # гасим шум покоя, чтобы глаз ловил только реальные движения
-			var tag := ""
-			if ax == axis_yaw:
-				tag = " <- YAW"
-			elif ax == axis_throttle:
-				tag = " <- THROTTLE"
-			elif ax == axis_roll:
-				tag = " <- ROLL"
-			elif ax == axis_pitch:
-				tag = " <- PITCH"
-			lines.append("ось %d: %+0.2f%s" % [ax, v, tag])
-
-	var panel_h := float(lines.size()) * DBG_LINE_H + 12.0
-	draw_rect(Rect2(Vector2(16, 70), Vector2(560, panel_h)), Color(0, 0, 0, 0.65))
-	var y := 70.0 + DBG_FONT_SIZE + 6.0
-	for i in lines.size():
-		var col := Color(0.8, 0.9, 1.0) if i > 0 else Color(1.0, 0.9, 0.3)
-		if lines[i].contains("<-"):
-			col = Color(0.2, 1.0, 0.3)
-		draw_string(font, Vector2(28.0, y), lines[i],
-			HORIZONTAL_ALIGNMENT_LEFT, -1.0, DBG_FONT_SIZE, col)
-		y += DBG_LINE_H
 
 func _on_joy_connection_changed(device: int, connected: bool) -> void:
 	if connected:
@@ -129,9 +91,6 @@ func _process(delta: float) -> void:
 		if _debug_timer >= 0.25:
 			_debug_timer = 0.0
 			print("Throttle: %.2f, Roll: %.2f, Pitch: %.2f, Yaw: %.2f" % [throttle, roll, pitch, yaw])
-
-	if show_axis_debug:
-		queue_redraw()  # обновляем диагностическую панель осей каждый кадр
 
 # Чтение со стиков аппаратуры
 func _read_joystick() -> void:
