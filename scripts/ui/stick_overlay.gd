@@ -1,74 +1,67 @@
 extends Control
-class_name StickOverlay
 # ============================================================
-# Визуализация стиков джойстика (как оверлей в Liftoff / Betaflight).
-# Рисует два полупрозрачных круга с осями и движущимися точками:
-#   левый круг  — ось 0 (Yaw) по X и ось 1 (Throttle) по Y;
-#   правый круг — ось 2 (Roll) по X и ось 3 (Pitch) по Y.
-# ВАЖНО: оси Throttle и Pitch инвертируются при отрисовке, потому что в Godot
-# Y растёт ВНИЗ, а на аппаратуре «газ вверх» и «стик pitch вверх» — это -1.
-# После поднятия точки вверх она должна рисоваться вверх — поэтому Y домножаем на -1.
+# Визуализация стиков (как оверлей в Liftoff / Betaflight Configurator).
+# Два полупрозрачных круга внизу экрана:
+#   ЛЕВЫЙ  — Yaw (горизонталь) и Throttle (вертикаль, без пружины);
+#   ПРАВЫЙ — Roll (горизонталь) и Pitch (вертикаль).
 #
-# Как подключить: CanvasLayer -> Control (растянуть на весь экран, mouse_filter=Ignore)
-# + этот скрипт. См. main.tscn (узел OSD/Sticks).
+# ИСТОЧНИК ДАННЫХ — синглтон InputHandler (autoload), а НЕ прямые вызовы
+# Input.get_joy_axis(). Это гарантирует, что оверлей показывает РОВНО ТО,
+# что получает физика дрона (те же оси, та же инверсия газа/pitch, те же
+# мёртвые зоны). Если оверлей и поведение дрона расходятся — проблема в
+# маппинге осей, и видно это сразу здесь.
+#
+# Если джойстик НЕ подключён — показывается клавиатурный fallback
+# (W/S — газ, A/D — yaw, стрелки — roll/pitch), точки тоже двигаются.
+#
+# ВАЖНО про инверсию: InputHandler.throttle хранится как 0..1 (0 = стик
+# вниз). Для отрисовки пересчитываем обратно в -1..1: t_raw = thr*2-1,
+# и инвертируем знак по экранному Y (в Godot Y растёт ВНИЗ, а «газ вверх»
+# должен рисоваться точкой ВВЕРХ). То же для pitch.
+#
+# Как подключить: CanvasLayer -> Control (anchors preset Full Rect,
+# mouse_filter=Ignore) + этот скрипт. Уже настроено в main.tscn (узел OSD/Sticks).
 
-const JOY_ID := 0                    # Индекс джойстика (RadioMaster Pocket = js0)
-const CIRCLE_R := 60.0               # Радиус круга, пикселей
-const DOT_R := 8.0                   # Радиус точки стика, пикселей
-const PADDING := 30.0                # Отступ снизу/по бокам
-const FONT_SIZE := 14                # Размер подписей значений осей
-
-# Номера осей RadioMaster Pocket в режиме Joystick (Mode 2).
-# ВАЖНО: в Godot 4 НЕ существует глобальных констант JOY_AXIS_0... —
-# это был синтаксис Godot 3. Здесь используем обычные int-константы,
-# а при вызовах приводим их к JoyAxis через `as JoyAxis` (иначе статический
-# типизатор Godot 4 ругается: "Cannot pass a value of type int as JoyAxis").
-const AXIS_YAW: int = 0              # Левый стик горизонталь
-const AXIS_THROTTLE: int = 1         # Левый стик вертикаль (без пружины)
-const AXIS_ROLL: int = 2             # Правый стик горизонталь
-const AXIS_PITCH: int = 3            # Правый стик вертикаль
-
-var _joy_connected := false
+const CIRCLE_R := 60.0        # Радиус круга, пикселей
+const DOT_R := 8.0            # Радиус точки стика, пикселей
+const PADDING := 30.0         # Отступ снизу/по бокам
+const FONT_SIZE := 14         # Размер подписей значений осей
 
 func _ready() -> void:
 	# Оверлей не перехватывает клики/фокус
 	mouse_filter = MOUSE_FILTER_IGNORE
-	_joy_connected = Input.get_connected_joypads().size() > 0
-	# Перепроверяем подключение джойстика при горячем подключении/отключении USB
-	Input.joy_connection_changed.connect(_on_joy_connection_changed)
-
-func _on_joy_connection_changed(device: int, connected: bool) -> void:
-	if device == JOY_ID:
-		_joy_connected = connected
-	queue_redraw()  # Перерисовать сразу (иначе точки «залипнут»)
 
 func _process(_delta: float) -> void:
 	# Перерисовываем каждый кадр — значения осей меняются непрерывно
 	queue_redraw()
 
 func _draw() -> void:
-	var size_px := size  # Размер контрола = размер окна (anchor full rect)
+	# Проверка наличия autoload-синглтона (если забыли register в Project Settings)
+	if not has_node("/root/InputHandler"):
+		var f := ThemeDB.fallback_font
+		draw_string(f, Vector2(20.0, 40.0),
+			"ОШИБКА: InputHandler не зарегистрирован в Autoload!",
+			HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color(1, 0.3, 0.3))
+		return
 
-	# Сырые значения осей с джойстика (-1..1). Если джойстика нет — рисуем нули.
-	var v_yaw := 0.0
-	var v_throttle := 0.0
-	var v_roll := 0.0
-	var v_pitch := 0.0
-	if _joy_connected and Input.is_joy_known(JOY_ID):
-		# `as JoyAxis` — приведение int-констант к enum-типу JoyAxis,
-		# требуемому сигнатурой Input.get_joy_axis() в Godot 4.
-		v_yaw = Input.get_joy_axis(JOY_ID, AXIS_YAW as JoyAxis)
-		v_throttle = Input.get_joy_axis(JOY_ID, AXIS_THROTTLE as JoyAxis)
-		v_roll = Input.get_joy_axis(JOY_ID, AXIS_ROLL as JoyAxis)
-		v_pitch = Input.get_joy_axis(JOY_ID, AXIS_PITCH as JoyAxis)
+	var ih := get_node("/root/InputHandler")
 
-	# --- Левый круг: Yaw (X) + Throttle (Y, ИНВЕРТИРОВАН: газ вверх = точка вверх)
-	var left_center := Vector2(PADDING + CIRCLE_R, size_px.y - PADDING - CIRCLE_R)
-	_draw_stick_circle(left_center, v_yaw, -v_throttle, "L: YAW / THR")
+	# Значения ИЗ ФИЗИКИ (обработанные: deadzone+expo применены InputHandler'ом)
+	var yaw_v: float = ih.yaw          # -1..1
+	var roll_v: float = ih.roll        # -1..1
+	var pitch_v: float = ih.pitch      # -1..1 (инверсия уже внутри InputHandler)
+	var thr_v: float = ih.throttle     # 0..1
 
-	# --- Правый круг: Roll (X) + Pitch (Y, ИНВЕРТИРОВАН: стик вверх = точка вверх)
-	var right_center := Vector2(size_px.x - PADDING - CIRCLE_R, size_px.y - PADDING - CIRCLE_R)
-	_draw_stick_circle(right_center, v_roll, -v_pitch, "R: ROLL / PITCH")
+	# Пересчёт газа 0..1 -> -1..1 для отрисовки (вверх = +1 на экране)
+	var throttle_draw: float = thr_v * 2.0 - 1.0
+
+	# --- Левый круг: X = Yaw, Y = Throttle (точка вверх = газ вверх)
+	var left_center := Vector2(PADDING + CIRCLE_R, size.y - PADDING - CIRCLE_R)
+	_draw_stick_circle(left_center, yaw_v, throttle_draw, "L: YAW / THROTTLE")
+
+	# --- Правый круг: X = Roll, Y = Pitch (точка вверх = стик на себя/nose up)
+	var right_center := Vector2(size.x - PADDING - CIRCLE_R, size.y - PADDING - CIRCLE_R)
+	_draw_stick_circle(right_center, roll_v, pitch_v, "R: ROLL / PITCH")
 
 # Рисует один круг стика: фон, крест осей, рамку мёртвой зоны, точку и подписи.
 func _draw_stick_circle(center: Vector2, axis_x: float, axis_y_up: float, title: String) -> void:
@@ -83,17 +76,22 @@ func _draw_stick_circle(center: Vector2, axis_x: float, axis_y_up: float, title:
 	var dz := CIRCLE_R * 0.05
 	draw_rect(Rect2(center - Vector2(dz, dz), Vector2(dz * 2, dz * 2)), Color(1, 1, 0, 0.5), false, 1.0)
 
-	# Точка стика: axis_y_up уже инвертирован вызывающим кодом (вверх = минус по экрану)
+	# Точка стика: axis_y_up > 0 значит «вверх», а в экранных координатах
+	# вверх = минус Y, поэтому второй компонент берём со знаком минус.
 	var dot := center + Vector2(clampf(axis_x, -1.0, 1.0), -clampf(axis_y_up, -1.0, 1.0)) * CIRCLE_R
 	draw_circle(dot, DOT_R, Color(0.2, 1.0, 0.3, 0.9))
 	draw_circle(dot, DOT_R, Color(1, 1, 1, 0.9), false, 1.5)
 
-	# Подписи: название над кругом, сырые значения осей под кругом
+	# Подписи: название над кругом, обработанные значения под кругом
 	var font := ThemeDB.fallback_font
 	draw_string(font, Vector2(center.x - CIRCLE_R, center.y - CIRCLE_R - 8.0),
 		title, HORIZONTAL_ALIGNMENT_CENTER, CIRCLE_R * 2.0, FONT_SIZE, Color(1, 1, 1, 0.8))
-	# Показываем СЫРЫЕ значения осей (до инверсии отрисовки), чтобы видно было
-	# реальное направление стика на аппаратуре (газ вверх = Y: -1.00).
-	var label := "X: %+.2f  Y: %+.2f" % [axis_x, -axis_y_up]
+	# Показываем значения так, как их видит физика: «вверх = +».
+	# Для газа дополнительно в процентах.
+	var label := ""
+	if title.begins_with("L"):
+		label = "Yaw: %+.2f  Thr: %.0f%%" % [axis_x, (axis_y_up + 1.0) * 50.0]
+	else:
+		label = "Roll: %+.2f  Pitch: %+.2f" % [axis_x, axis_y_up]
 	draw_string(font, Vector2(center.x - CIRCLE_R, center.y + CIRCLE_R + 18.0),
 		label, HORIZONTAL_ALIGNMENT_CENTER, CIRCLE_R * 2.0, FONT_SIZE, Color(0.2, 1.0, 0.3))

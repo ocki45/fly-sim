@@ -4,14 +4,25 @@ extends Node
 # джойстика делает fallback на клавиатуру.
 
 # --- Маппинг осей RadioMaster Pocket (режим Joystick, /dev/input/js0) ---
+# ВАЖНО: на Linux маппинг осей зависит от режима передатчика и версии udev-правил.
+# Если оси перепутаны — поменяйте номера ЗДЕСЬ (оверлей стиков теперь показывает
+# значения ПОСЛЕ этого маппинга, так что расхождение видно сразу).
 const JOY_AXIS_YAW := 0        # Левый стик горизонталь
 const JOY_AXIS_THROTTLE := 1   # Левый стик вертикаль (без пружины!)
 const JOY_AXIS_ROLL := 2       # Правый стик горизонталь
 const JOY_AXIS_PITCH := 3      # Правый стик вертикаль
 
+# Инверсии ОСЕЙ «как есть» с аппаратуры (до обработки). Ставим true, если
+# конкретная ось на вашем экземпляре Pocket читается наоборот.
+const INVERT_YAW := false
+const INVERT_THROTTLE := true   # газ вверх на стике = -1 в Godot -> инвертируем
+const INVERT_ROLL := false
+const INVERT_PITCH := true      # стик вверх = -1 в Godot -> инвертируем
+
 const DEADZONE := 0.05         # Мёртвая зона стиков
 const EXPO := 0.3              # Expo-кривая для roll/pitch/yaw (ТЗ: output = in*(expo*in^2 + 1-expo))
 const DEBUG_PRINT := true      # Флаг отладочного вывода в консоль (можно отключить)
+const RAW_DEBUG_PRINT := true  # Разовый дамп ВСЕХ осей при подключении (для поиска перепутанных осей)
 
 # Текущие обработанные значения:
 var throttle: float = 0.0      # 0..1 (газ)
@@ -27,10 +38,29 @@ func _ready() -> void:
 	for id in Input.get_connected_joypads():
 		_joy_id = id
 		print("InputHandler: найден джойстик #%d: %s" % [id, Input.get_joy_name(id)])
+	# Ловим горячее подключение/отключение USB (сигнал есть в Godot 4)
+	Input.joy_connection_changed.connect(_on_joy_connection_changed)
+
+func _on_joy_connection_changed(device: int, connected: bool) -> void:
+	if connected:
+		_joy_connected(device)
+	else:
+		_joy_disconnected(device)
 
 func _joy_connected(device: int) -> void:
 	_joy_id = device
 	print("InputHandler: джойстик подключён: #%d %s" % [device, Input.get_joy_name(device)])
+	if RAW_DEBUG_PRINT:
+		_print_all_axes()  # Дамп осей — видно, какие номера реально двигаются
+
+# Разовый дамп всех доступных осей (для диагностики перепутанного маппинга).
+func _print_all_axes() -> void:
+	var axes_count := Input.get_joy_axis_count(_joy_id)
+	print("InputHandler: доступно осей: %d (текущие значения):" % axes_count)
+	for ax in axes_count:
+		var v: float = Input.get_joy_axis(_joy_id, ax as JoyAxis)
+		print("  ось %d: %+0.2f" % [ax, v])
+	print("InputHandler: подвигайте стиками и следите за числами; при необходимости поменяйте константы JOY_AXIS_* в начале скрипта.")
 
 func _joy_disconnected(device: int) -> void:
 	if device == _joy_id:
@@ -65,10 +95,16 @@ func _read_joystick() -> void:
 	var raw_pitch := Input.get_joy_axis(_joy_id, JOY_AXIS_PITCH as JoyAxis)
 	var raw_yaw := Input.get_joy_axis(_joy_id, JOY_AXIS_YAW as JoyAxis)
 
-	# В Godot Y вниз = +1, а на аппаратуре газ вверх = -1 => инвертируем
-	raw_throttle = -raw_throttle
-	# Pitch тоже инвертирован по той же причине (стек вверх = nose up)
-	raw_pitch = -raw_pitch
+	# Инверсии по константам INVERT_* (в Godot Y вниз = +1; на аппаратуре
+	# «газ вверх» и «стик pitch вверх» читаются как -1 => инвертируем).
+	if INVERT_THROTTLE:
+		raw_throttle = -raw_throttle
+	if INVERT_PITCH:
+		raw_pitch = -raw_pitch
+	if INVERT_YAW:
+		raw_yaw = -raw_yaw
+	if INVERT_ROLL:
+		raw_roll = -raw_roll
 
 	# Мёртвые зоны
 	raw_throttle = _apply_deadzone(raw_throttle)
