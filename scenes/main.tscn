@@ -143,6 +143,19 @@ script = ExtResource("4_osd")
 drone_path = NodePath("../../Drone")
 
 [node name="Sticks" type="Control" parent="OSD"]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5_sticks")
+
+[node name="StickOverlay" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="Sticks" type="Control" parent="StickOverlay"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
