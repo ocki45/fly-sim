@@ -10,7 +10,8 @@ const JOY_AXIS_ROLL := 2       # Правый стик горизонталь
 const JOY_AXIS_PITCH := 3      # Правый стик вертикаль
 
 const DEADZONE := 0.05         # Мёртвая зона стиков
-const DEBUG_PRINT := false     # Флаг отладочного вывода в консоль
+const EXPO := 0.3              # Expo-кривая для roll/pitch/yaw (ТЗ: output = in*(expo*in^2 + 1-expo))
+const DEBUG_PRINT := true      # Флаг отладочного вывода в консоль (можно отключить)
 
 # Текущие обработанные значения:
 var throttle: float = 0.0      # 0..1 (газ)
@@ -53,7 +54,7 @@ func _process(delta: float) -> void:
 		_debug_timer += delta
 		if _debug_timer >= 0.25:
 			_debug_timer = 0.0
-			print("T:%.2f R:%.2f P:%.2f Y:%.2f" % [throttle, roll, pitch, yaw])
+			print("Throttle: %.2f, Roll: %.2f, Pitch: %.2f, Yaw: %.2f" % [throttle, roll, pitch, yaw])
 
 # Чтение со стиков аппаратуры
 func _read_joystick() -> void:
@@ -75,11 +76,11 @@ func _read_joystick() -> void:
 
 	# Газ: из -1..1 в 0..1 (нижняя половина диапазона = 0)
 	throttle = clampf((raw_throttle + 1.0) * 0.5, 0.0, 1.0)
-	# Expo на газ НЕ вешаем. Expo для roll/pitch/yaw применяется в drone_physics
-	# через config.stick_expo — здесь оставляем линейные значения.
-	roll = raw_roll
-	pitch = raw_pitch
-	yaw = raw_yaw
+	# Expo-кривая для roll/pitch/yaw: output = input * (expo*input^2 + (1-expo))
+	# На газ expo НЕ вешаем (как в Betaflight).
+	roll = apply_expo(raw_roll, EXPO)
+	pitch = apply_expo(raw_pitch, EXPO)
+	yaw = apply_expo(raw_yaw, EXPO)
 
 # Клавиатурный fallback
 func _read_keyboard() -> void:

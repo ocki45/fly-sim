@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=15 format=3]
 
 ; main.tscn — сцена прототипа: земля, небо, солнце, дрон Quad X из примитивов.
 ; DronePhysics (RigidBody3D) с дочерними точками моторов, визуальными маркерами
@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://scripts/physics/drone_physics.gd" id="1_drone_physics"]
 [ext_resource type="Resource" path="res://resources/drones/drone_220mm_freestyle.tres" id="2_config"]
 [ext_resource type="Script" path="res://scripts/camera/fpv_camera.gd" id="3_fpv_camera"]
+[ext_resource type="Script" path="res://scripts/ui/osd_ui.gd" id="4_osd"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
 sky_top_color = Color(0.35, 0.6, 0.95, 1)
@@ -123,3 +124,15 @@ fov = 150.0
 near = 0.05
 far = 1000.0
 script = ExtResource("3_fpv_camera")
+drone = NodePath("..")
+
+[node name="OSD" type="CanvasLayer" parent="."]
+
+[node name="Label" type="Label" parent="OSD"]
+offset_left = 16.0
+offset_top = 12.0
+offset_right = 420.0
+offset_bottom = 200.0
+text = "OSD: загрузка..."
+script = ExtResource("4_osd")
+drone_path = NodePath("../../Drone")

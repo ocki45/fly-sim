@@ -43,11 +43,11 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var delta := get_physics_process_delta_time()  # Шаг физики (1/60 при настройках по умолчанию)
 
 	# ---------- 1. Чтение ввода ----------
-	# InputHandler отдаёт линейные значения; expo применяем здесь через config
-	var expo := config.stick_expo
-	var stick_roll := InputHandler.apply_expo(InputHandler.roll, expo)
-	var stick_pitch := InputHandler.apply_expo(InputHandler.pitch, expo)
-	var stick_yaw := InputHandler.apply_expo(InputHandler.yaw, expo)
+	# InputHandler уже применяет мёртвую зону и expo (ТЗ: формула в input_handler.gd).
+	# Здесь expo НЕ повторяем — иначе кривая применится дважды и стики станут «ватными».
+	var stick_roll := InputHandler.roll
+	var stick_pitch := InputHandler.pitch
+	var stick_yaw := InputHandler.yaw
 	var throttle := pow(InputHandler.throttle, config.throttle_curve_exponent)
 
 	# ---------- 2. Миксер Quad X: целевые обороты каждого мотора ----------
@@ -82,8 +82,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	var local_up := Vector3(0, 1, 0)
 	var global_transform_basis := state.transform.basis
 	# В Godot 4 у Basis НЕТ метода .xform() — правильный способ: оператор *
-	# total_thrust — нормализованная тяга 0..4, переводим в ньютоны через max_thrust_newtons
-	var thrust_force_world := (global_transform_basis * local_up) * (total_thrust * config.max_thrust_newtons)
+	# total_thrust уже в Ньютонах (сумма f_fl..f_br), переводим тип явным float(),
+	# иначе GDScript не может вывести тип выражения с Basis * Vector3 (ошибка на строке 86).
+	var thrust_total_n: float = float(total_thrust)
+	var thrust_force_world: Vector3 = (global_transform_basis * local_up) * thrust_total_n
 	# Собственная гравитация (массу RigidBody берём из конфига)
 	var gravity_force := Vector3(0, -config.mass_kg * GRAVITY, 0)
 
@@ -142,7 +144,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	# явной схемы dt < 2*I/K. Godot может давать большие шаги (просадки кадров),
 	# поэтому ограничиваем эффективную жёсткость под текущий шаг...
 	var min_i: float = minf(minf(inertia.x, inertia.y), inertia.z)
-	var eff_stiffness: float = minf(RATE_STIFFNESS, 1.8 * min_i / maxf(step_delta, 0.0001))
+	# ИСПРАВЛЕНИЕ: step_delta был необъявлен (Parse Error). Шаг физики — delta из начала функции.
+	var eff_stiffness: float = minf(RATE_STIFFNESS, 1.8 * min_i / maxf(delta, 0.0001))
 	# ...и пересчитывательную часть момента с ней (демпфер остаётся как есть).
 	for axis in 3:
 		var i_axis2: float = [inertia.x, inertia.y, inertia.z][axis]
