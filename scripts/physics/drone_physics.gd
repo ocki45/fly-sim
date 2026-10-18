@@ -40,7 +40,10 @@ func _ready() -> void:
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if config == null:
 		return
-	var delta := get_physics_process_delta_time()  # Шаг физики (1/60 при настройках по умолчанию)
+	# Явное указание типа float + берём шаг ПРЯМО из state (надёжнее, чем
+	# get_physics_process_delta_time(): в некоторых сборках Godot тот возвращает 0).
+	# maxf(...) гарантирует, что ноль никогда не попадёт в знаменатель.
+	var delta: float = maxf(state.get_step(), 0.0001)  # Шаг физики (1/60 по умолчанию)
 
 	# ---------- 1. Чтение ввода ----------
 	# InputHandler уже применяет мёртвую зону и expo (ТЗ: формула в input_handler.gd).
@@ -72,20 +75,19 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 	# ---------- 4. Тяга каждого мотора: thrust = max_thrust * rpm^2 ----------
 	# (rpm нормированы 0..1, поэтому квадрат относительных оборотов)
-	var f_fl := config.max_thrust_per_motor_n * _rpm_fl * _rpm_fl
-	var f_fr := config.max_thrust_per_motor_n * _rpm_fr * _rpm_fr
-	var f_bl := config.max_thrust_per_motor_n * _rpm_bl * _rpm_bl
-	var f_br := config.max_thrust_per_motor_n * _rpm_br * _rpm_br
-	var total_thrust := f_fl + f_fr + f_bl + f_br
+	# Явные типы float во всей цепочке — чтобы компилятор гарантированно
+	# выводил типы (исключает ошибку "Cannot infer the type ...").
+	var f_fl: float = config.max_thrust_per_motor_n * _rpm_fl * _rpm_fl
+	var f_fr: float = config.max_thrust_per_motor_n * _rpm_fr * _rpm_fr
+	var f_bl: float = config.max_thrust_per_motor_n * _rpm_bl * _rpm_bl
+	var f_br: float = config.max_thrust_per_motor_n * _rpm_br * _rpm_br
+	var total_thrust: float = f_fl + f_fr + f_bl + f_br
 
-	# ---------- 5. Сила тяги в локальной системе дрона (локальная +Y вверх) ----------
-	var local_up := Vector3(0, 1, 0)
-	var global_transform_basis := state.transform.basis
+	# ---------- 5. Сила тяги в мировой системе координат ----------
+	var local_up: Vector3 = Vector3(0, 1, 0)  # локальная +Y дрона = «вверх»
 	# В Godot 4 у Basis НЕТ метода .xform() — правильный способ: оператор *
-	# total_thrust уже в Ньютонах (сумма f_fl..f_br), переводим тип явным float(),
-	# иначе GDScript не может вывести тип выражения с Basis * Vector3 (ошибка на строке 86).
-	var thrust_total_n: float = float(total_thrust)
-	var thrust_force_world: Vector3 = (global_transform_basis * local_up) * thrust_total_n
+	var global_transform_basis: Basis = state.transform.basis
+	var thrust_force_world: Vector3 = (global_transform_basis * local_up) * total_thrust
 	# Собственная гравитация (массу RigidBody берём из конфига)
 	var gravity_force := Vector3(0, -config.mass_kg * GRAVITY, 0)
 
