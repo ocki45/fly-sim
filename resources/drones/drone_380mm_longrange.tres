@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="DroneConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/physics/drone_config.gd" id="1_config"]
+
+[resource]
+script = ExtResource("1_config")
+drone_name = "380mm Long Range (6S)"
+mass_kg = 1.6
+arm_length_m = 0.19
+motor_kv = 500
+battery_cells = 6
+propeller_size_inch = 15.0
+propeller_pitch = 5.5
+moment_of_inertia = Vector3(0.02, 0.02, 0.03)
+drag_coefficient = 0.15
+quadratic_drag = 0.04
+angular_drag = 0.1
+max_thrust_per_motor_n = 40.0
+throttle_curve_exponent = 2.3
+motor_spinup_time = 0.3
+gyro_effect_strength = 0.08
+stick_expo = 0.3

@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="DroneConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/physics/drone_config.gd" id="1_config"]
+
+[resource]
+script = ExtResource("1_config")
+drone_name = "220mm Race (6S)"
+mass_kg = 0.45
+arm_length_m = 0.105
+motor_kv = 2400
+battery_cells = 6
+propeller_size_inch = 5.0
+propeller_pitch = 4.5
+moment_of_inertia = Vector3(0.0012, 0.0012, 0.0018)
+drag_coefficient = 0.03
+quadratic_drag = 0.008
+angular_drag = 0.012
+max_thrust_per_motor_n = 24.0
+throttle_curve_exponent = 2.0
+motor_spinup_time = 0.09
+gyro_effect_strength = 0.018
+stick_expo = 0.15
