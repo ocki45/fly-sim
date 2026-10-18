@@ -116,9 +116,13 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	# ---------- 8. Аэродинамическое сопротивление поступательного движения ----------
 	var vel := state.linear_velocity
 	var speed := vel.length()
-	# Линейное + квадратичное сопротивление, направлено против скорости
+	# Линейное + квадратичное сопротивление, направлено против скорости.
+	# Ограничение — по Ускорению (макс. decel = тяга/масса), а не «силой ≤ вес»:
+	# для лёгких дронов (whoop 30 г) старое ограничение глушило тягу и дрон
+	# не мог взлететь даже на 100% газа.
+	var max_drag_accel_n: float = (4.0 * config.max_thrust_per_motor_n)  # Н = m*a_max
 	var drag_mag := config.drag_coefficient * speed + config.quadratic_drag * speed * speed
-	drag_mag = minf(drag_mag, config.mass_kg * GRAVITY)  # защита от «взрыва» симуляции
+	drag_mag = minf(drag_mag, max_drag_accel_n)
 	var drag_force := -vel.normalized() * drag_mag if speed > 0.01 else Vector3.ZERO
 
 	# ---------- 9. Rate-контроллер (стабилизатор угловой скорости) ----------
@@ -168,9 +172,10 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 		ang_local.x = clampf(ang_local.x, -max_rate_hard, max_rate_hard)
 		ang_local.y = clampf(ang_local.y, -max_rate_hard, max_rate_hard)
 		ang_local.z = clampf(ang_local.z, -max_rate_hard, max_rate_hard)
-		# Синхронизируем состояние движка (иначе инерция движка «сотрёт» лимит)
-		linear_velocity = state.linear_velocity
-		angular_velocity = global_transform_basis * ang_local
+		# Синхронизируем состояние движка: в Godot 4 это свойства объекта
+		# state (PhysicsDirectBodyState3D), а НЕ свойства узла RigidBody3D.
+		# Иначе следующий физический шаг унаследует «взрывную» скорость.
+		state.angular_velocity = global_transform_basis * ang_local
 
 	# Перевод локального момента в мировые координаты: Basis * vector (Godot 4)
 	# (объявлена ровно один раз — ранее была ошибка дублирования объявления)

@@ -78,7 +78,7 @@ shape = SubResource("GroundCol")
 
 [node name="Drone" type="RigidBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
-mass = 1.0
+mass = 0.6
 gravity_scale = 0.0
 can_sleep = false
 script = ExtResource("1_drone_physics")
