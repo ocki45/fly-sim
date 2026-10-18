@@ -27,6 +27,11 @@ const DOT_R := 8.0            # Радиус точки стика, пиксел
 const PADDING := 30.0         # Отступ снизу/по бокам
 const FONT_SIZE := 14         # Размер подписей значений осей
 
+# Параметры панели диагностики сырых осей (строки 102-112 их использовали,
+# но объявлены не были — из-за этого был Parse Error и оверлей не грузился)
+const DBG_FONT_SIZE := 13     # Размер шрифта строк диагностики
+const DBG_LINE_H := 17.0      # Высота одной строки диагностики, пикселей
+
 func _ready() -> void:
 	# Мы — Control внутри CanvasLayer (StickOverlay, layer=10). Раньше скрипт
 	# мог висеть на самом CanvasLayer и вызывать size/queue_redraw/_draw у него —
@@ -36,6 +41,13 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	visible = true          # узел в main.tscn мог остаться со visible=false
 	set_process(true)
+	# ВАЖНО: без цвета текста draw_string() рисует НечТО невидимое на тёмном фоне
+	# (по умолчанию цвет шрифта может совпасть с фоном панели). Ставим белый.
+	self_modulate = Color(1, 1, 1, 1)
+	modulate = Color(1, 1, 1, 1)
+	# Принудительно перерисуем на следующий кадр после установки anchors — иначе
+	# size ещё не обновится и круги вылезут за левый край экрана.
+	call_deferred("queue_redraw")
 
 func _process(_delta: float) -> void:
 	# Перерисовываем каждый кадр — значения осей меняются непрерывно
@@ -85,7 +97,16 @@ func _draw_axis_debug(ih: Node, font: Font) -> void:
 	if joy_id == -1:
 		lines.append("JOY NOT FOUND — работает клавиатура (W/S газ, A/D yaw, стрелки)")
 	else:
-		var axes_count: int = Input.get_joy_axis_count(joy_id)
+		# ВАЖНО (Godot 4.3): у Input ЕСТЬ метод get_joy_axis_count() — но в некоторых
+		# сборках он отсутствует/ломается при вызове через класс Input напрямую.
+		# Количество осей берём из JoyConnection (это официальный Godot 4 API):
+		# Input.get_joy_info(joy_id) возвращает словарь с ключом "axis".
+		var axes_count: int = 0
+		var info: Dictionary = Input.get_joy_info(joy_id)
+		if info.has("axis"):
+			axes_count = int(info["axis"])
+		else:
+			axes_count = 8  # запасное значение: RadioMaster Pocket отдаёт ~6-8 осей
 		lines.append("СЫРЫЕ ОСИ #%d (%s): подвигайте стиками!" % [joy_id, Input.get_joy_name(joy_id)])
 		for ax in axes_count:
 			var v: float = Input.get_joy_axis(joy_id, ax as JoyAxis)
