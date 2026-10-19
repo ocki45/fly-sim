@@ -1,12 +1,16 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=18 format=3]
 
-; main.tscn — сцена прототипа: земля, небо, солнце, дрон Quad X из примитивов.
+; main.tscn — сцена прототипа: лес-карта, небо, солнце, дрон Quad X из примитивов.
 ; DronePhysics (RigidBody3D) с дочерними точками моторов, визуальными маркерами
 ; и FPV-камерой. Подключается как Main Scene проекта.
 
 [ext_resource type="Script" path="res://scripts/physics/drone_physics.gd" id="1_drone_physics"]
 [ext_resource type="Resource" path="res://resources/drones/drone_220mm_freestyle.tres" id="2_config"]
 [ext_resource type="Script" path="res://scripts/camera/fpv_camera.gd" id="3_fpv_camera"]
+[ext_resource type="Script" path="res://scripts/ui/osd_ui.gd" id="4_osd"]
+[ext_resource type="Script" path="res://scripts/ui/stick_overlay.gd" id="5_sticks"]
+[ext_resource type="PackedScene" path="res://scenes/objects/race_gate.tscn" id="6_gate"]
+[ext_resource type="PackedScene" path="res://scenes/world/forest_map.tscn" id="7_forest"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
 sky_top_color = Color(0.35, 0.6, 0.95, 1)
@@ -21,11 +25,18 @@ sky_material = SubResource("SkyMat")
 background_mode = 2
 sky = SubResource("Sky")
 ambient_light_source = 3
-tonemap_mode = 2
-glow_enabled = true
+tonemap_mode = 0
+; ОПТИМИЗАЦИЯ FPS: glow был включён — на программном рендере (llvmpipe) это
+; несколько полноэкранных blur-проходов каждый кадр. Выключен. tonemap_mode 0
+; (Linear) вместо Filmic — дешевле шейдер.
+glow_enabled = false
 
 [sub_resource type="PlaneMesh" id="GroundMesh"]
 size = Vector2(500, 500)
+; ОПТИМИЗАЦИЯ: центральные секции (subdivide_width/depth) по умолчанию 10x10 —
+; лишние треугольники для плоской земли без террейна. Оставляем минимум.
+subdivide_width = 0
+subdivide_depth = 0
 
 [sub_resource type="StandardMaterial3D" id="GroundMat"]
 albedo_color = Color(0.45, 0.45, 0.47, 1)
@@ -58,9 +69,17 @@ environment = SubResource("Env")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.866, -0.354, 0.354, 0, 0.8, 0.6, -0.5, -0.48, 0.64, 0, 20, 0)
-shadow_enabled = true
+; ОПТИМИЗАЦИЯ FPS: тени directional light на софтрендере — самый дорогой
+; элемент кадра (полный рендер shadow map + PCSS). Отключено; сцена остаётся
+; читаемой за счёт ambient_light_source = 3 (от неба).
+shadow_enabled = false
 
 [node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="ForestMap" parent="." instance=ExtResource("7_forest")]
+
+[node name="RaceGate" parent="." instance=ExtResource("6_gate")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, -8)
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Ground"]
 mesh = SubResource("GroundMesh")
@@ -72,7 +91,7 @@ shape = SubResource("GroundCol")
 
 [node name="Drone" type="RigidBody3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
-mass = 1.0
+mass = 0.6
 gravity_scale = 0.0
 can_sleep = false
 script = ExtResource("1_drone_physics")
@@ -123,3 +142,31 @@ fov = 150.0
 near = 0.05
 far = 1000.0
 script = ExtResource("3_fpv_camera")
+drone = NodePath("..")
+
+[node name="DebugCam" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.923880, 0.382683, 0, -0.382683, 0.923880, 0, 3.0, 6.0)
+enabled = false
+
+[node name="OSD" type="CanvasLayer" parent="."]
+
+[node name="Label" type="Label" parent="OSD"]
+offset_left = 16.0
+offset_top = 12.0
+offset_right = 420.0
+offset_bottom = 200.0
+text = "OSD: загрузка..."
+script = ExtResource("4_osd")
+drone_path = NodePath("../../Drone")
+
+[node name="StickOverlay" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="Sticks" type="Control" parent="StickOverlay"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5_sticks")

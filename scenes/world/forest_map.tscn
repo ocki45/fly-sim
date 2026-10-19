@@ -1,0 +1,13 @@
+[gd_scene load_steps=2 format=3]
+
+; forest_map.tscn — карта «лес»: процедурный генератор (скрипт forest_map.gd).
+; Добавляется в main.tscn как дочерний узел корневой сцены.
+
+[ext_resource type="Script" path="res://scripts/world/forest_map.gd" id="1"]
+
+[node name="ForestMap" type="Node3D"]
+script = ExtResource("1")
+tree_count = 60
+map_radius = 90.0
+clearing_radius = 12.0
+seed_value = 1337

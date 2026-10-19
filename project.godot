@@ -4,11 +4,12 @@ config_version=5
 [application]
 
 config/name="FPV Sim"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 
 [autoload]
 
+GameManager="*res://scripts/autoload/game_manager.gd"
 InputHandler="*res://scripts/input/input_handler.gd"
 
 [display]
