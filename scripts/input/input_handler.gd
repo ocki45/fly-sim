@@ -67,6 +67,21 @@ var _debug_timer: float = 0.0  # Ограничитель частоты печ�
 @export var show_axis_debug: bool = true
 
 func _ready() -> void:
+	# Применяем сохранённую калибровку из GameManager (user://calibration.cfg),
+	# если синглтон подключён как autoload. Это дефолты Mode 2, пока пользователь
+	# не перекалибрует пульт на экране калибровки.
+	if "GameManager" in Engine or has_node("/root/GameManager"):
+		var gm: Node = get_node_or_null("/root/GameManager")
+		if gm != null and gm.current_mapping.has("throttle"):
+			axis_throttle = int(gm.current_mapping["throttle"]["axis"])
+			invert_throttle = bool(gm.current_mapping["throttle"]["inverted"])
+			axis_yaw = int(gm.current_mapping["yaw"]["axis"])
+			invert_yaw = bool(gm.current_mapping["yaw"]["inverted"])
+			axis_pitch = int(gm.current_mapping["pitch"]["axis"])
+			invert_pitch = bool(gm.current_mapping["pitch"]["inverted"])
+			axis_roll = int(gm.current_mapping["roll"]["axis"])
+			invert_roll = bool(gm.current_mapping["roll"]["inverted"])
+			print("InputHandler: применена калибровка из GameManager")
 	# Ищем уже подключённый джойстик
 	for id in Input.get_connected_joypads():
 		_joy_id = id

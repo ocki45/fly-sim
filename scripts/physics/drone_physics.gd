@@ -38,6 +38,13 @@ func _ready() -> void:
 	# free_rotate удалён: в Godot 4 его нет (был только в Godot 3).
 	# RigidBody3D всегда свободно вращается — нам это и нужно.
 	can_sleep = false
+	# Если GameManager выбрал другой конфиг дрона в меню — переключаются ВСЕ
+	# DronePhysics в сцене (в текущей main.tscen дрон один).
+	var gm: Node = get_node_or_null("/root/GameManager")
+	if gm != null:
+		var path: String = gm.get_drone_config()
+		if path != "" and ResourceLoader.exists(path):
+			config = load(path)
 	if config == null:
 		push_error("DronePhysics: config не назначен!")
 
