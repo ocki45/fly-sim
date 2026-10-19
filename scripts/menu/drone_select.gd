@@ -32,7 +32,8 @@ func _on_select_pressed() -> void:
 	if gm != null:
 		gm.set_drone_config(DRONE_LIST[sel[0]])
 		print("DroneSelect: выбран конфиг ", DRONE_LIST[sel[0]])
-	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	# Как в Liftoff: выбор дрона сразу отправляет на карту (полёт).
+	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
 func _on_back_pressed() -> void:
