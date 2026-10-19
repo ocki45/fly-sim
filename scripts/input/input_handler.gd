@@ -67,27 +67,52 @@ var _debug_timer: float = 0.0  # Ограничитель частоты печ�
 @export var show_axis_debug: bool = true
 
 func _ready() -> void:
-	# Применяем сохранённую калибровку из GameManager (user://calibration.cfg),
-	# если синглтон подключён как autoload. Это дефолты Mode 2, пока пользователь
-	# не перекалибрует пульт на экране калибровки.
-	if "GameManager" in Engine or has_node("/root/GameManager"):
-		var gm: Node = get_node_or_null("/root/GameManager")
-		if gm != null and gm.current_mapping.has("throttle"):
-			axis_throttle = int(gm.current_mapping["throttle"]["axis"])
-			invert_throttle = bool(gm.current_mapping["throttle"]["inverted"])
-			axis_yaw = int(gm.current_mapping["yaw"]["axis"])
-			invert_yaw = bool(gm.current_mapping["yaw"]["inverted"])
-			axis_pitch = int(gm.current_mapping["pitch"]["axis"])
-			invert_pitch = bool(gm.current_mapping["pitch"]["inverted"])
-			axis_roll = int(gm.current_mapping["roll"]["axis"])
-			invert_roll = bool(gm.current_mapping["roll"]["inverted"])
-			print("InputHandler: применена калибровка из GameManager")
-	# Ищем уже подключённый джойстик
+	# Ищем уже подключённый джойстик (обязательно — иначе _joy_id = -1
+	# и ввод с пульта не читается вообще).
 	for id in Input.get_connected_joypads():
 		_joy_id = id
 		print("InputHandler: найден джойстик #%d: %s" % [id, Input.get_joy_name(id)])
+	# Применяем сохранённую калибровку из GameManager (user://calibration.cfg),
+	# если синглтон подключён как autoload. Это дефолты Mode 2, пока пользователь
+	# не перекалибрует пульт на экране калибровки.
+	var gm: Node = get_node_or_null("/root/GameManager")
+	if gm != null and gm.current_mapping.has("throttle"):
+		_apply_calibration(gm.current_mapping)
 	# Ловим горячее подключение/отключение USB (сигнал есть в Godot 4)
 	Input.joy_connection_changed.connect(_on_joy_connection_changed)
+
+
+# Применение словаря калибровки {channel: {axis, inverted}} к нашим @export-полям.
+# Вызывается при старте и при каждом обновлении калибровки из меню.
+func _apply_calibration(mapping: Dictionary) -> void:
+	for ch in ["throttle", "yaw", "pitch", "roll"]:
+		if not mapping.has(ch):
+			continue
+		var entry: Dictionary = mapping[ch]
+		if not entry.has("axis") or not entry.has("inverted"):
+			continue
+		match ch:
+			"throttle":
+				axis_throttle = int(entry["axis"])
+				invert_throttle = bool(entry["inverted"])
+			"yaw":
+				axis_yaw = int(entry["axis"])
+				invert_yaw = bool(entry["inverted"])
+			"pitch":
+				axis_pitch = int(entry["axis"])
+				invert_pitch = bool(entry["inverted"])
+			"roll":
+				axis_roll = int(entry["axis"])
+				invert_roll = bool(entry["inverted"])
+	print("InputHandler: применена калибровка ", mapping)
+
+
+# Публичный метод: экран калибровки может вызвать его сразу после сохранения,
+# чтобы новые оси действовали без перезапуска сцены.
+func reload_calibration() -> void:
+	var gm: Node = get_node_or_null("/root/GameManager")
+	if gm != null:
+		_apply_calibration(gm.current_mapping)
 
 func _on_joy_connection_changed(device: int, connected: bool) -> void:
 	if connected:

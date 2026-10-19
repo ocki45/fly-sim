@@ -144,6 +144,12 @@ func _on_save_pressed() -> void:
 	gm.save_calibration()
 	lbl_result.text = "Сохранено в user://calibration.cfg\n%s" % JSON.stringify(mapping)
 	print("Calibration: сохранён mapping ", mapping)
+	# Мгновенно применяем к активному InputHandler (без перезапуска сцены).
+	var ih: Node = get_node_or_null("/root/InputHandler")
+	if ih != null and ih.has_method("reload_calibration"):
+		ih.reload_calibration()
+	# Как в Liftoff: после сохранения сразу возвращаемся в главное меню.
+	get_tree().create_timer(1.2).timeout.connect(_on_back_pressed)
 
 
 func _on_back_pressed() -> void:
