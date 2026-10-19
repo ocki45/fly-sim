@@ -67,11 +67,16 @@ func _draw() -> void:
 
 	var ih := get_node("/root/InputHandler")
 
-	# === ЖИВАЯ ДИАГНОСТИКА СЫРЫХ ОСЕЙ (главный инструмент против перепутанного маппинга) ===
-	# Показывает ВСЕ оси пульта прямо на экране: подвигайте стики и смотрите,
-	# какой номер реагирует. Текущий выбор (axis_yaw/throttle/roll/pitch) подсвечен.
 	var font := ThemeDB.fallback_font
-	_draw_axis_debug(ih, font)
+
+	# === ДИАГНОСТИЧЕСКАЯ ПАНЕЛЬ (сырые оси + что берёт физика) ===
+	# ВАЖНЫЙ УРОК ИЗ ПРЕДЫДУЩИХ ВЕРСИЙ: раньше здесь вызывался метод
+	# Input.get_joy_axis_count(), которого НЕ СУЩЕСТВУЕТ как статического —
+	# из-за этого скрипт падал с Parse Error и на экране НЕ РИСОВАЛСЯ НИЧЕГО
+	# (ни кругов, ни диагностики). Все вызовы API ниже проверены на Godot 4.3.
+	# Панель включается флагом show_axis_debug у узла InputHandler.
+	if ih.show_axis_debug:
+		_draw_axis_debug(ih, font)
 
 	# Значения ИЗ ФИЗИКИ (обработанные: deadzone+expo применены InputHandler'ом).
 	# ВАЖНО: берём СЫРЫЕ значения до expo (raw_*), чтобы точка шла линейно за
@@ -85,8 +90,6 @@ func _draw() -> void:
 	var throttle_draw: float = thr_v * 2.0 - 1.0
 
 	# --- Левый круг: X = Yaw, Y = Throttle (точка вверх = газ вверх)
-	# ВАЖНО: axis_x/axis_y_up трактуются скриптом круга как «X горизонталь, Y вертикаль».
-	# У вас по маппингу ось 0 = газ (вертикаль), ось 1 = yaw (горизонталь).
 	var left_center := Vector2(PADDING + CIRCLE_R, size.y - PADDING - CIRCLE_R)
 	_draw_stick_circle(left_center, yaw_v, throttle_draw, "L: THROTTLE / YAW", font)
 
@@ -131,6 +134,15 @@ func _update_axis_debug(ih: Node) -> void:
 			elif ax == ih.axis_roll:     tag = " <- ROLL"
 			elif ax == ih.axis_pitch:    tag = " <- PITCH"
 			lines.append("ось %d: %+0.2f%s" % [ax, v, tag])
+		# --- КЛЮЧЕВАЯ ДИАГНОСТИКА: что реально получает физика дрона ---
+		# По этим строкам сразу видно перепутанный маппинг: двиньте левый стик
+		# ГОРИЗОНТАЛЬНО — должен измениться ТОЛЬКО raw_yaw; ВЕРТИКАЛЬНО — только
+		# thr/raw_thr. Правый стик горизонталь -> raw_roll, вертикаль -> raw_pitch.
+		lines.append("ФИЗИКА: thr=%.2f raw_thr=%+.2f raw_roll=%+.2f raw_pitch=%+.2f raw_yaw=%+.2f" % [
+			ih.throttle, ih.raw_throttle, ih.raw_roll, ih.raw_pitch, ih.raw_yaw])
+		lines.append("MAP: thr=%d yaw=%d roll=%d pitch=%d | inv t/p/y/r: %d/%d/%d/%d" % [
+			ih.axis_throttle, ih.axis_yaw, ih.axis_roll, ih.axis_pitch,
+			int(ih.invert_throttle), int(ih.invert_pitch), int(ih.invert_yaw), int(ih.invert_roll)])
 	_dbg_lines = lines
 
 # Рисует панель со ВСЕМИ сырыми осями джойстика (для настройки маппинга).
