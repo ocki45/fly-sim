@@ -4,32 +4,40 @@ extends Node
 # джойстика делает fallback на клавиатуру.
 
 # --- Маппинг осей RadioMaster Pocket (режим Joystick, /dev/input/js0) ---
-# ВАЖНО: на Linux маппинг зависит от режима передатчика (Mode 1/2), прошивки и
-# udev-правил — у разных экземпляров Pocket оси НУМЕРУЮТСЯ ПО-РАЗНОМУ.
-# Это @export переменные: меняются прямо в инспекторе Godot БЕЗ правки кода.
+# ЕДИНСТВЕННО ВЕРНАЯ СХЕМА (стандарт Mode 2, зафиксирована по ТЗ пользователя):
+#   ЛЕВЫЙ стик вертикаль (Ось 1 / JOY_AXIS_LEFT_Y)  = THROTTLE (газ, 0..1)
+#   ЛЕВЫЙ стик горизонталь (Ось 0 / JOY_AXIS_LEFT_X)= YAW
+#   ПРАВЫЙ стик горизонталь (Ось 2 / JOY_AXIS_RIGHT_X) = ROLL
+#   ПРАВЫЙ стик вертикаль (Ось 3 / JOY_AXIS_RIGHT_Y)   = PITCH
 #
-# ЭТАЛОННЫЙ МАППИНГ (согласно ТЗ, Mode 2):
-#   Ось 0 = Yaw (левый стик горизонталь)
-#   Ось 1 = Throttle (левый стик вертикаль, без пружины; Godot даёт -1 при газе
-#           вверх => invert_throttle = true)
-#   Ось 2 = Roll (правый стик горизонталь)
-#   Ось 3 = Pitch (правый стик вертикаль; инвертирован аналогично)
-# Если у вас поведение «перепутано» — НЕ гадайте: посмотрите панель «СЫРЫЕ ОСИ»
-# на экране (stick_overlay.gd) или строку "AXIS DUMP" в консоли, и поставьте
-# реагирующие номера сюда (или в инспектор узла InputHandler).
-@export var axis_yaw: int = 0        # Ось 0: yaw (левый стик горизонталь)
-@export var axis_throttle: int = 1   # Ось 1: газ (левый стик вертикаль, без пружины!)
-@export var axis_roll: int = 2       # Ось 2: roll (правый стик горизонталь)
-@export var axis_pitch: int = 3      # Ось 3: pitch (правый стик вертикаль)
+# ВАЖНО ПРО ИНТЕРФЕЙС GODOT 4: констант вида JOY_AXIS_LEFT_X в Godot 4 НЕ
+# СУЩЕСТВУЕТ (это был синтаксис Godot 3 / SDL). В Godot 4 enum JoyAxis содержит
+# только AXIS_0..AXIS_5, поэтому соответствие «LEFT_X = Ось 0» закреплено здесь
+# именами-алиасами ниже — дальше по коду читаем оси ТОЛЬКО по этим именам.
+const JOY_AXIS_LEFT_X: int = 0    # alias: Ось 0 = левый стик горизонталь
+const JOY_AXIS_LEFT_Y: int = 1    # alias: Ось 1 = левый стик вертикаль
+const JOY_AXIS_RIGHT_X: int = 2   # alias: Ось 2 = правый стик горизонталь
+const JOY_AXIS_RIGHT_Y: int = 3   # alias: Ось 3 = правый стик вертикаль
 
-# Инверсии ОСЕЙ «как есть» с аппаратуры (до обработки). Ставим галочку в инспекторе,
-# если конкретная ось на вашем экземпляре Pocket читается наоборот
-# (ориентир — диагностика: газ до упора ВВЕРХ должен давать ~ +1 после инверсии,
-# точка на левом круге оверлея при этом идёт ВВЕРХ).
-@export var invert_throttle: bool = true   # газ вверх на стике = -1 в Godot -> инвертируем
-@export var invert_yaw: bool = false       # не инвертируем
-@export var invert_roll: bool = false      # не инвертируем
-@export var invert_pitch: bool = true      # стик вверх = -1 в Godot -> инвертируем
+# Номера осей — @export: если на вашем экземпляре Pocket нумерация сбилась,
+# поправьте в инспекторе узла InputHandler (НЕ в коде). Дефолты = стандарт Mode 2.
+# ВНИМАНИЕ: значения НЕ сохраняются в main.tscn — единственный источник истины
+# этот код. Если раньше в инспекторе стояли другие числа и жались «Сохранить сцену»,
+# они могли перекрыть дефолты; сейчас таких property-строк в сцене нет (проверено),
+# поэтому маппинг гарантированно = схема ниже.
+@export var axis_yaw: int = JOY_AXIS_LEFT_X     # Ось 0: yaw
+@export var axis_throttle: int = JOY_AXIS_LEFT_Y  # Ось 1: газ (без пружины!)
+@export var axis_roll: int = JOY_AXIS_RIGHT_X   # Ось 2: roll
+@export var axis_pitch: int = JOY_AXIS_RIGHT_Y  # Ось 3: pitch
+
+# Инверсии осей. В Godot «вниз по стику» = +1. По ТЗ:
+#   - газ ВВЕРХ на аппаратуре приходит как -1 => инвертируем (было 0 внизу);
+#   - pitch: стик ВВЕРХ = наклон дрона вперёд => инвертируем;
+#   - yaw/roll читаются напрямую (влево = -1, вправо = +1) => без инверсии.
+@export var invert_throttle: bool = true
+@export var invert_yaw: bool = false
+@export var invert_roll: bool = false
+@export var invert_pitch: bool = true
 
 const DEADZONE := 0.05         # Мёртвая зона стиков
 const EXPO := 0.3              # Expo-кривая для roll/pitch/yaw (ТЗ: output = in*(expo*in^2 + 1-expo))
@@ -125,15 +133,15 @@ func _dump_axes() -> void:
 		axis_yaw, axis_throttle, axis_roll, axis_pitch,
 		str(invert_throttle), str(invert_pitch), str(invert_yaw), str(invert_roll)])
 
-# Чтение со стиков аппаратуры
+# Чтение со стиков аппаратуры (схема строго по Mode 2, см. константы вверху)
 func _read_joystick() -> void:
-	# `as JoyAxis` — приведение int-значений к enum-типу JoyAxis, который
-	# требует Input.get_joy_axis() в Godot 4 (иначе ошибка типизации).
-	# Номера осей берутся из @export axis_* — настраиваются в инспекторе.
-	var rt := Input.get_joy_axis(_joy_id, axis_throttle as JoyAxis)
-	var rr := Input.get_joy_axis(_joy_id, axis_roll as JoyAxis)
-	var rp := Input.get_joy_axis(_joy_id, axis_pitch as JoyAxis)
-	var ry := Input.get_joy_axis(_joy_id, axis_yaw as JoyAxis)
+	# `as JoyAxis` — приведение int к enum-типу JoyAxis, который требует
+	# Input.get_joy_axis() в Godot 4. Номера осей — из @export axis_*
+	# (дефолты = JOY_AXIS_LEFT_X/Y, RIGHT_X/Y).
+	var rt := Input.get_joy_axis(_joy_id, axis_throttle as JoyAxis)  # Ось 1: газ
+	var rr := Input.get_joy_axis(_joy_id, axis_roll as JoyAxis)      # Ось 2: roll
+	var rp := Input.get_joy_axis(_joy_id, axis_pitch as JoyAxis)     # Ось 3: pitch
+	var ry := Input.get_joy_axis(_joy_id, axis_yaw as JoyAxis)       # Ось 0: yaw
 
 	# Инверсии по @export invert_* (в Godot Y вниз = +1; на аппаратуре
 	# «газ вверх» и «стик pitch вверх» читаются как -1 => инвертируем).
@@ -158,8 +166,9 @@ func _read_joystick() -> void:
 	raw_pitch = rp
 	raw_yaw = ry
 
-	# Газ: из -1..1 в 0..1 (нижняя половина диапазона = 0)
-	throttle = clampf((rt + 1.0) * 0.5, 0.0, 1.0)
+	# Газ: формула из ТЗ — throttle = (ось1 + 1.0) / 2.0, диапазон 0..1
+	# (стик до упора ВНИЗ = 0.0, до упора ВВЕРХ = 1.0)
+	throttle = clampf((rt + 1.0) / 2.0, 0.0, 1.0)
 	# Expo-кривая для roll/pitch/yaw: output = input * (expo*input^2 + (1-expo))
 	# На газ expo НЕ вешаем (как в Betaflight).
 	roll = apply_expo(rr, EXPO)
