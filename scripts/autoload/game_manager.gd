@@ -12,6 +12,10 @@ var selected_drone_config: String = "res://resources/drones/drone_220mm_freestyl
 
 # Файл сохранения калибровки (user:// = writable dir Godot).
 const CALIBRATION_PATH: String = "user://calibration.cfg"
+# Файл сохранения ВЫБРАННОГО ДРОНА (исправление: выбор дрона теперь
+# переживает перезапуск игры — раньше selected_drone_config жил только
+# в памяти, и после закрытия Godot всегда возвращался freestyle).
+const DRONE_PATH_FILE: String = "user://selected_drone.cfg"
 
 # Схема по умолчанию — Mode 2 (RadioMaster Pocket):
 # ось 1 = газ, ось 0 = yaw, ось 3 = pitch, ось 2 = roll.
@@ -29,6 +33,7 @@ var current_mapping: Dictionary = {}
 
 func _ready() -> void:
 	load_calibration()
+	load_drone_choice()
 
 
 # Загрузка калибровки из JSON-файла; при ошибке/отсутствии — дефолт.
@@ -56,11 +61,35 @@ func save_calibration() -> void:
 	file.store_string(JSON.stringify(current_mapping, "\t"))
 
 
-# Установка пути к .tres-конфигу выбранного дрона.
+# Установка пути к .tres-конфигу выбранного дрона + сохранение на диск.
 func set_drone_config(path: String) -> void:
 	selected_drone_config = path
+	save_drone_choice()
 
 
 # Получение пути к выбранному конфигу дрона.
 func get_drone_config() -> String:
 	return selected_drone_config
+
+
+# ---------- Персистентный выбор дрона ----------
+
+func save_drone_choice() -> void:
+	var file: FileAccess = FileAccess.open(DRONE_PATH_FILE, FileAccess.WRITE)
+	if file == null:
+		push_warning("GameManager: не удалось сохранить выбор дрона")
+		return
+	file.store_string(selected_drone_config)
+
+
+func load_drone_choice() -> void:
+	if not FileAccess.file_exists(DRONE_PATH_FILE):
+		return
+	var file: FileAccess = FileAccess.open(DRONE_PATH_FILE, FileAccess.READ)
+	if file == null:
+		return
+	var path: String = file.get_as_text().strip_edges()
+	# Принимаем только реально существующий ресурс — защита от битого файла.
+	if path != "" and ResourceLoader.exists(path):
+		selected_drone_config = path
+		print("GameManager: восстановлен выбранный дрон: ", path)

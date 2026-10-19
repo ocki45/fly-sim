@@ -25,11 +25,18 @@ sky_material = SubResource("SkyMat")
 background_mode = 2
 sky = SubResource("Sky")
 ambient_light_source = 3
-tonemap_mode = 2
-glow_enabled = true
+tonemap_mode = 0
+; ОПТИМИЗАЦИЯ FPS: glow был включён — на программном рендере (llvmpipe) это
+; несколько полноэкранных blur-проходов каждый кадр. Выключен. tonemap_mode 0
+; (Linear) вместо Filmic — дешевле шейдер.
+glow_enabled = false
 
 [sub_resource type="PlaneMesh" id="GroundMesh"]
 size = Vector2(500, 500)
+; ОПТИМИЗАЦИЯ: центральные секции (subdivide_width/depth) по умолчанию 10x10 —
+; лишние треугольники для плоской земли без террейна. Оставляем минимум.
+subdivide_width = 0
+subdivide_depth = 0
 
 [sub_resource type="StandardMaterial3D" id="GroundMat"]
 albedo_color = Color(0.45, 0.45, 0.47, 1)
@@ -62,7 +69,10 @@ environment = SubResource("Env")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.866, -0.354, 0.354, 0, 0.8, 0.6, -0.5, -0.48, 0.64, 0, 20, 0)
-shadow_enabled = true
+; ОПТИМИЗАЦИЯ FPS: тени directional light на софтрендере — самый дорогой
+; элемент кадра (полный рендер shadow map + PCSS). Отключено; сцена остаётся
+; читаемой за счёт ambient_light_source = 3 (от неба).
+shadow_enabled = false
 
 [node name="Ground" type="StaticBody3D" parent="."]
 

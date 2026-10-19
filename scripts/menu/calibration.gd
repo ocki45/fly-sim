@@ -34,6 +34,8 @@ var extremes: Array = [{}, {}]
 var current_channel: int = 0        # Индекс калибруемого канала
 var current_phase: int = 0          # 0 = pos, 1 = neg
 var collecting: bool = false        # Идёт ли сбор данных на текущем шаге
+# Результат по каждому каналу: {"axis": int, "inverted": bool}
+var results: Dictionary = {}
 
 @onready var lbl_hint: Label = $LblHint
 @onready var lbl_result: Label = $LblResult
@@ -46,15 +48,19 @@ func _ready() -> void:
 	btn_next.pressed.connect(_on_next_pressed)
 	btn_save.pressed.connect(_on_save_pressed)
 	btn_back.pressed.connect(_on_back_pressed)
+	results = {}  # сброс результатов при каждом входе на экран
 	_start_step(0, 0)
 
 
 # Начало шага калибровки: фаза pos/neg конкретного канала.
+# ВАЖНО (исправление бага «оси путаются»): экстремумы очищаются ТОЛЬКО для
+# текущей фазы, а не оба массива сразу — иначе данные фазы "+" терялись на
+# фазе "-", и инверсия определялась неверно.
 func _start_step(chan_idx: int, phase_idx: int) -> void:
 	current_channel = chan_idx
 	current_phase = phase_idx
 	collecting = true
-	extremes = [{}, {}]  # очищаем накопленные экстремумы
+	extremes[phase_idx] = {}  # сбрасываем накопление только текущей фазы
 	var ch: String = CHANNELS[chan_idx]
 	var hint: String = HINTS_POS[ch] if phase_idx == 0 else HINTS_NEG[ch]
 	var phase_txt: String = "ШАГ +%s" % ("1" if phase_idx == 0 else "2")
@@ -63,7 +69,7 @@ func _start_step(chan_idx: int, phase_idx: int) -> void:
 	lbl_result.text = "Удерживайте стик в этом положении 1-2 секунды..."
 
 
-# Каждый кадр собираем миниумы/максимумы всех осей во время активной фазы.
+# Каждый кадр собираем минимумы/максимумы всех осей во время активной фазы.
 func _process(_delta: float) -> void:
 	if not collecting:
 		return
@@ -85,50 +91,72 @@ func _process(_delta: float) -> void:
 
 
 # Кнопка ДАЛЕЕ: завершаем фазу pos -> запускаем фазу neg того же канала;
-# после neg -> переходим к следующему каналу.
+# после neg -> определяем ось+инверсию КАНАЛА СРАЗУ (по его собственным
+# данным, а не по последнему каналу — это второе исправление бага) и
+# переходим к следующему каналу.
 func _on_next_pressed() -> void:
 	collecting = false
 	if current_phase == 0:
 		_start_step(current_channel, 1)
-	elif current_channel + 1 < CHANNELS.size():
+		return
+	# Фаза "-" завершена: фиксируем результат текущего канала.
+	var ch: String = CHANNELS[current_channel]
+	results[ch] = _detect_channel(ch)
+	print("Calibration: %s -> axis=%d inverted=%s" % [
+		ch, results[ch]["axis"], results[ch]["inverted"]])
+	if current_channel + 1 < CHANNELS.size():
 		_start_step(current_channel + 1, 0)
 	else:
-		lbl_hint.text = "Все каналы откалиброваны. Нажмите СОХРАНИТЬ."
+		var summary := "Все каналы откалиброваны. Нажмите СОХРАНИТЬ.\n"
+		for k in CHANNELS:
+			summary += "%s: ось %d, инверсия %s\n" % [
+				k, results[k]["axis"], str(results[k]["inverted"])]
+		lbl_hint.text = summary
 		lbl_result.text = ""
 
 
-# Определение оси и инверсии для ТЕКУЩЕГО канала по двум фазам.
-# Логика Liftoff/Gas Station:
-#   - фаза pos: ищем ось с наибольшим МАКСИМУМОМ (она ушла в +1);
-#   - фаза neg: проверяем ту же ось — если её МИНИМУМ близок к -1, ось верная;
-#   - inverted = true, если при «положительном» движении стика сырая ось ушла
-#     в отрицательную сторону (Godot Y вниз = +1, аппаратура часто отдаёт наоборот).
-func _detect_channel(ch: String) -> Dictionary:
+# Определение оси и инверсии канала ПО ЕГО ДВУМ ФАЗАМ.
+# Алгоритм:
+#   1. Реагирующая ось = та, у которой размах (max-min) за обе фазы наибольший
+#      и превышает порог 0.5 (остальные оси стояли на месте).
+#   2. Инверсия: фаза "+" — это ПРАВИЛЬНОЕ направление стика из подсказки
+#      (газ вверх / yaw вправо / pitch от себя / roll вправо). Если в этой
+#      фазе ось ушла в ОТРИЦАТЕЛЬНую сторону (|min| > max) — симулятор должен
+#      инвертировать её, чтобы стик давал ожидаемый знак канала.
+func _detect_channel_for(chan_idx: int) -> Dictionary:
+	var ch: String = CHANNELS[chan_idx]
 	var pos_data: Dictionary = extremes[0]
 	var neg_data: Dictionary = extremes[1]
-	# 1. Ось фазы pos: максимальный пик.
+	# 1. Ищем ось с наибольшим размахом между двумя фазами.
 	var best_ax: int = -1
-	var best_val: float = -2.0
+	var best_span: float = 0.0
 	for ax in pos_data.keys():
-		if pos_data[ax]["max"] > best_val:
-			best_val = pos_data[ax]["max"]
+		if not neg_data.has(ax):
+			continue
+		var hi: float = maxf(pos_data[ax]["max"], neg_data[ax]["max"])
+		var lo: float = minf(pos_data[ax]["min"], neg_data[ax]["min"])
+		var span: float = hi - lo
+		if span > best_span:
+			best_span = span
 			best_ax = ax
-	if best_ax == -1 or best_val < 0.5:
-		# Ничего не отклоняли — оставляем дефолт по имени канала (Mode 2).
+	if best_ax == -1 or best_span < 0.5:
+		# Ничего не отклоняли — оставляем дефолт Mode 2 без инверсии.
 		var defaults := {"throttle": 1, "yaw": 0, "pitch": 3, "roll": 2}
 		return {"axis": defaults.get(ch, 0), "inverted": false}
-	# 2. Инверсия: в фазу posGood стик ушёл в ПЛЮС (best_val > 0) => не инвертировать;
-	#    если максимум так себе, а в фазу neg эта же ось ушла сильно в минус больше,
-	#    чем ожидалось, это нормально. Инвертируем, если в фазе pos ось ушла в МИНУС:
-	#    значит «правильное» направление стика даёт отрицательные значения сырой оси.
-	var inverted: bool = false
-	if neg_data.has(best_ax):
-		# Разница: сколько ось прошла в плюс (pos) против минуса (neg).
-		var up_span: float = pos_data[best_ax]["max"]
-		var down_span: float = absf(neg_data[best_ax]["min"])
-		# Если «вниз» прошёл заметно дальше, чем «вверх» — стик инвертирован.
-		inverted = down_span > up_span + 0.4
+	# 2. Инверсия по фазе "+": правильному движению стика соответствует
+	#    положительное значение канала. Смотрим, куда ушла ось в фазе pos.
+	var p_max: float = pos_data[best_ax]["max"]
+	var p_min: float = pos_data[best_ax]["min"]
+	var inverted: bool = absf(p_min) > p_max  # «правильный» край дал минус
 	return {"axis": best_ax, "inverted": inverted}
+
+
+# Совместимость со старым вызовом по имени канала.
+func _detect_channel(ch: String) -> Dictionary:
+	var idx: int = CHANNELS.find(ch)
+	if idx < 0:
+		return {"axis": 0, "inverted": false}
+	return _detect_channel_for(idx)
 
 
 func _on_save_pressed() -> void:
@@ -136,10 +164,16 @@ func _on_save_pressed() -> void:
 	if gm == null:
 		push_error("GameManager не найден (проверьте Autoload)!")
 		return
-	# Собираем mapping: номер оси И инверсия для каждого канала (Liftoff-style).
+	# Собираем mapping: номер оси И инверсия для каждого канала.
+	# Используем результаты, зафиксированные ПОСЛЕ каждого канала (правильные
+	# пары фаз), а не пересчёт по глобальным extremes (старый баг: все четыре
+	# канала считались по данным последнего — отсюда «оси путаются жесть»).
 	var mapping: Dictionary = {}
 	for ch in CHANNELS:
-		mapping[ch] = _detect_channel(ch)
+		if results.has(ch):
+			mapping[ch] = results[ch]
+		else:
+			mapping[ch] = {"axis": {"throttle": 1, "yaw": 0, "pitch": 3, "roll": 2}[ch], "inverted": false}
 	gm.current_mapping = mapping
 	gm.save_calibration()
 	lbl_result.text = "Сохранено в user://calibration.cfg\n%s" % JSON.stringify(mapping)
