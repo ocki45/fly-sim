@@ -85,8 +85,10 @@ func _draw() -> void:
 	var throttle_draw: float = thr_v * 2.0 - 1.0
 
 	# --- Левый круг: X = Yaw, Y = Throttle (точка вверх = газ вверх)
+	# ВАЖНО: axis_x/axis_y_up трактуются скриптом круга как «X горизонталь, Y вертикаль».
+	# У вас по маппингу ось 0 = газ (вертикаль), ось 1 = yaw (горизонталь).
 	var left_center := Vector2(PADDING + CIRCLE_R, size.y - PADDING - CIRCLE_R)
-	_draw_stick_circle(left_center, yaw_v, throttle_draw, "L: YAW / THROTTLE", font)
+	_draw_stick_circle(left_center, yaw_v, throttle_draw, "L: THROTTLE / YAW", font)
 
 	# --- Правый круг: X = Roll, Y = Pitch (точка вверх = nose up)
 	var right_center := Vector2(size.x - PADDING - CIRCLE_R, size.y - PADDING - CIRCLE_R)
